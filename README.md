@@ -1,7 +1,7 @@
 1. IDENTIFYING INFORMATION
    
 a. Full Name:Tad Kitaguchi, Angel Zuniga, Khoa Nguyen
-b. Student ID: 2403661,
+b. Student ID: 2403661, 2457790
 c. Chapman Email: tkitaguchi@chapman.edu,
 d. Course Number and Section: CPSC542-01
 e. Assignment or Exercise Number:
