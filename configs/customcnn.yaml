@@ -1,0 +1,33 @@
+seed: 1337
+
+data:
+  csv_path: data/crops.csv
+  image_size: 224
+  train_split: train
+  val_split: val
+  countries: null
+  allowed_labels: [D00, D10, D20, D40]
+
+model:
+  name: custom_cnn
+  pretrained: false
+  freeze_backbone: false
+
+train:
+  epochs: 20
+  batch_size: 64
+  num_workers: 4
+  optimizer: adamw
+  lr: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine
+  early_stopping_patience: 5
+
+outputs:
+  root_dir: outputs/customcnn
+  checkpoints_dir: outputs/customcnn/checkpoints
+  logs_dir: outputs/customcnn/logs
+  figures_dir: outputs/customcnn/figures
+  label_map_path: outputs/customcnn/label_map.json
+  best_checkpoint_name: best.pt
+  history_name: history.json

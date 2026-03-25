@@ -1,0 +1,33 @@
+seed: 1337
+
+data:
+  csv_path: data/crops.csv
+  image_size: 224
+  train_split: train
+  val_split: val
+  countries: null
+  allowed_labels: [D00, D10, D20, D40]
+
+model:
+  name: vit_tiny_patch16_224
+  pretrained: false
+  freeze_backbone: false
+
+train:
+  epochs: 20
+  batch_size: 32
+  num_workers: 4
+  optimizer: adamw
+  lr: 0.0003
+  weight_decay: 0.0001
+  scheduler: cosine
+  early_stopping_patience: 5
+
+outputs:
+  root_dir: outputs/vit_scratch
+  checkpoints_dir: outputs/vit_scratch/checkpoints
+  logs_dir: outputs/vit_scratch/logs
+  figures_dir: outputs/vit_scratch/figures
+  label_map_path: outputs/vit_scratch/label_map.json
+  best_checkpoint_name: best.pt
+  history_name: history.json

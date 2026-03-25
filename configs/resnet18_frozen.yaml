@@ -1,0 +1,33 @@
+seed: 1337
+
+data:
+  csv_path: data/crops.csv
+  image_size: 224
+  train_split: train
+  val_split: val
+  countries: null
+  allowed_labels: [D00, D10, D20, D40]
+
+model:
+  name: resnet18
+  pretrained: true
+  freeze_backbone: true
+
+train:
+  epochs: 12
+  batch_size: 64
+  num_workers: 4
+  optimizer: adamw
+  lr: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine
+  early_stopping_patience: 4
+
+outputs:
+  root_dir: outputs/resnet18_frozen
+  checkpoints_dir: outputs/resnet18_frozen/checkpoints
+  logs_dir: outputs/resnet18_frozen/logs
+  figures_dir: outputs/resnet18_frozen/figures
+  label_map_path: outputs/resnet18_frozen/label_map.json
+  best_checkpoint_name: best.pt
+  history_name: history.json
