@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Outputs
+outputs/
+*.pt
+*.pth
+*.json
+*.png
+
+# OS/editor
+.DS_Store
