@@ -229,7 +229,7 @@ def create_npy(rows: List[ObjRow]) -> np.ndarray:
 
     return arr
 
-def creat_pkl (rows: List[ObjRow]) -> Dict[str, np.ndarray]:
+def create_pkl (rows: List[ObjRow]) -> Dict[str, np.ndarray]:
     if not rows:
         return{}
 
@@ -262,7 +262,7 @@ def write_split_files(rows: List[ObjRow], output_dir: Path, split_name: str) -> 
     np.save(npy_path, arr)
 
     # PKL
-    image_to_boxes = create_npy(rows)
+    image_to_boxes = create_pkl(rows)
     with plk_path.open("wb") as f:
         pickle.dump(image_to_boxes, f)
 
