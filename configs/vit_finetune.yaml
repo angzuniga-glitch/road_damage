@@ -13,9 +13,9 @@ model:
   freeze_backbone: false
 
 train:
-  epochs: 15
-  batch_size: 128
-  num_workers: 12
+  epochs: 20
+  batch_size: 128 # 32 was the previous
+  num_workers: 12 # 4 was the previous
   prefetch_factor: 4
   optimizer: adamw
   lr: 0.00005
