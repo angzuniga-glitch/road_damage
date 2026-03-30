@@ -268,19 +268,19 @@ def main() -> int:
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
                 profile_memory=True,
-                acc_events=False,
+                with_stack=True,
             ) as prof:
                 with record_function("train_epoch"):
                     train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
 
-            print("\n" + "-" * 80)
-            print("Profiler Results: Epoch 1)")
-            print("-" * 80)
-            print(prof.key_averages().table(
-                sort_by="cuda_time_total",
-                row_limit=20
-            ))
-            print("-" * 80 + "\n")
+            prof_dir = Path(out_cfg["logs_dir"]) / "profiler"
+            prof_dir.mkdir(parents=True, exist_ok=True)
+            prof.export_chrome_trace(str(prof_dir / "trace.json"))
+            with open(prof_dir / "profiler_results.txt", 'w') as f:
+                f.write(prof.key_averages().table(
+                    sort_by="cuda_time_total",
+                    row_limit=90
+                ))
         else:
             train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
 
