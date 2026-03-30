@@ -1,7 +1,4 @@
 from __future__ import annotations
-
-from typing import Optional
-
 import torch.nn as nn
 import torchvision.models as tvm
 from torchvision.models import (
@@ -13,20 +10,16 @@ import timm
 
 from src.models.custom_cnn import CustomCNN
 
-
 def freeze_module(module: nn.Module) -> None:
     for p in module.parameters():
         p.requires_grad = False
-
 
 def unfreeze_module(module: nn.Module) -> None:
     for p in module.parameters():
         p.requires_grad = True
 
-
 def count_trainable_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
 
 def _build_resnet(
     name: str,
@@ -54,7 +47,6 @@ def _build_resnet(
         model.fc = nn.Linear(in_features, num_classes)
 
     return model
-
 
 def _build_vit(
     name: str,
@@ -87,7 +79,6 @@ def _build_vit(
             raise ValueError(f"Model {name} does not expose a standard .head for freezing/fine-tuning.")
 
     return model
-
 
 def create_model(
     model_name: str,
@@ -139,7 +130,6 @@ def create_model(
         )
 
     raise ValueError(f"Unsupported model_name: {model_name}")
-
 
 if __name__ == "__main__":
     configs = [
