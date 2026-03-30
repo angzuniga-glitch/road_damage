@@ -1,16 +1,14 @@
 from __future__ import annotations
-
 import argparse
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
-
 import yaml
 import torch
 import torch.nn as nn
+from torch.profiler import profile, record_function, ProfilerActivity
 from torch.optim import AdamW, SGD
 from torch.utils.data import DataLoader
-
 from src.data.dataset import RDDBboxCropDataset, save_label_map
 from src.data.transforms import get_train_transforms, get_eval_transforms
 from src.models.factory import create_model, count_trainable_parameters
@@ -24,17 +22,14 @@ from src.utils import (
     set_seed,
 )
 
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train road-damage crop classifier.")
     p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
     return p.parse_args()
 
-
 def load_config(path: str | Path) -> Dict[str, Any]:
     with open(path, "r") as f:
         return yaml.safe_load(f)
-
 
 def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict[str, int]]:
     data_cfg = cfg["data"]
@@ -42,46 +37,73 @@ def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict
     eval_tf = get_eval_transforms(data_cfg["image_size"])
 
     label_map_path = cfg["outputs"]["label_map_path"]
+    cache_images = data_cfg.get("cache_images", False)
+    split_dir = data_cfg.get("split_dir")
 
-    train_ds = RDDBboxCropDataset(
-        csv_path=data_cfg["csv_path"],
-        split=data_cfg["train_split"],
-        transform=train_tf,
-        countries=data_cfg.get("countries"),
-        allowed_labels=data_cfg.get("allowed_labels"),
-        label_map=None,
-        label_map_out=label_map_path,
-    )
+    if split_dir:
+        split_dir = Path(split_dir)
+        train_pkl = split_dir / "train" / "train_annotations.pkl"
+        val_pkl = split_dir / "val" / "val_annotations.pkl"
 
-    label_map = train_ds.label_map
+        train_ds = RDDBboxCropDataset(
+            pkl_path = str(train_pkl),
+            split = None,
+            transform = train_tf,
+            countries = data_cfg.get("countries"),
+            allowed_labels = data_cfg.get("allowed_labels"),
+            cache_images=cache_images,
+        )
+        val_ds = RDDBboxCropDataset(
+            pkl_path = str(val_pkl),
+            split = None,
+            transform = eval_tf,
+            countries = data_cfg.get("countries"),
+            allowed_labels = data_cfg.get("allowed_labels"),
+            cache_images=cache_images,
+        )
+    else:
+        csv_path = data_cfg["csv_path"]
+        train_ds = RDDBboxCropDataset(
+            csv_path = csv_path,
+            split = data_cfg["train_split"],
+            transform = train_tf,
+            countries = data_cfg.get("countries"),
+            allowed_labels = data_cfg.get("allowed_labels"),
+            cache_images = cache_images,
+        )
+        val_ds = RDDBboxCropDataset(
+            csv_path = csv_path,
+            split = data_cfg["val_split"],
+            transform = eval_tf,
+            countries = data_cfg.get("countries"),
+            allowed_labels = data_cfg.get("allowed_labels"),
+            cache_images = cache_images,
+        )
+    all_labels =sorted(set(row["label"] for row in train_ds.data))
+    label_map = {label:idx for idx, label in enumerate(all_labels)}
+    save_label_map(label_map, label_map_path)
 
-    val_ds = RDDBboxCropDataset(
-        csv_path=data_cfg["csv_path"],
-        split=data_cfg["val_split"],
-        transform=eval_tf,
-        countries=data_cfg.get("countries"),
-        allowed_labels=data_cfg.get("allowed_labels"),
-        label_map=label_map,
-    )
-
-    train_loader = DataLoader(
+    train_dl = DataLoader(
         train_ds,
         batch_size=cfg["train"]["batch_size"],
         shuffle=True,
-        num_workers=cfg["train"].get("num_workers", 4),
+        num_workers=cfg["train"]["num_workers"],
         pin_memory=True,
+        prefetch_factor=cfg["train"].get("prefetch_factor", 2),
+        persistent_workers=True,
     )
 
-    val_loader = DataLoader(
+    val_dl = DataLoader(
         val_ds,
         batch_size=cfg["train"]["batch_size"],
         shuffle=False,
-        num_workers=cfg["train"].get("num_workers", 4),
+        num_workers=cfg["train"]["num_workers"],
         pin_memory=True,
+        prefetch_factor=cfg["train"].get("prefetch_factor", 2),
+        persistent_workers=True,
     )
 
-    return train_loader, val_loader, label_map
-
+    return train_dl, val_dl, label_map
 
 def build_optimizer(cfg: Dict[str, Any], model: nn.Module) -> torch.optim.Optimizer:
     opt_name = cfg["train"]["optimizer"].lower()
@@ -98,7 +120,6 @@ def build_optimizer(cfg: Dict[str, Any], model: nn.Module) -> torch.optim.Optimi
 
     raise ValueError(f"Unsupported optimizer: {opt_name}")
 
-
 def build_scheduler(cfg: Dict[str, Any], optimizer: torch.optim.Optimizer):
     sched_name = cfg["train"].get("scheduler", "none").lower()
 
@@ -114,13 +135,13 @@ def build_scheduler(cfg: Dict[str, Any], optimizer: torch.optim.Optimizer):
 
     raise ValueError(f"Unsupported scheduler: {sched_name}")
 
-
 def train_one_epoch(
     model: nn.Module,
     loader: DataLoader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    scaler: torch.cuda.amp.GradScaler,
 ) -> Dict[str, float]:
     model.train()
 
@@ -131,11 +152,13 @@ def train_one_epoch(
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
-        logits = model(images)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast('cuda'):
+            logits = model(images)
+            loss = criterion(logits, labels)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
         loss_meter.update(loss.item(), n=images.size(0))
 
@@ -201,12 +224,14 @@ def main() -> int:
         pretrained=model_cfg.get("pretrained", False),
         freeze_backbone=model_cfg.get("freeze_backbone", False),
     ).to(device)
+    model = torch.compile(model)
 
     optimizer = build_optimizer(cfg, model)
+    scaler = torch.amp.GradScaler()
     scheduler = build_scheduler(cfg, optimizer)
     criterion = nn.CrossEntropyLoss()
 
-    print("=" * 80)
+    print("-" * 80)
     print(f"Config:              {args.config}")
     print(f"Device:              {device}")
     print(f"Model:               {model_cfg['name']}")
@@ -216,7 +241,7 @@ def main() -> int:
     print(f"Trainable params:    {count_trainable_parameters(model):,}")
     print(f"Train samples:       {len(train_loader.dataset)}")
     print(f"Val samples:         {len(val_loader.dataset)}")
-    print("=" * 80)
+    print("-" * 80)
 
     history = {
         "config": cfg,
@@ -228,6 +253,7 @@ def main() -> int:
     best_metric = -1.0
     best_epoch = -1
     patience = cfg["train"].get("early_stopping_patience", 10)
+    min_delta = cfg["train"].get("min_delta", 0.0)
     epochs_no_improve = 0
 
     ckpt_path = str(Path(out_cfg["checkpoints_dir"]) / out_cfg["best_checkpoint_name"])
@@ -236,7 +262,27 @@ def main() -> int:
     for epoch in range(1, cfg["train"]["epochs"] + 1):
         start = time.time()
 
-        train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        # Profiling Block
+        if epoch == 1:
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                record_shapes=True,
+                profile_memory=True,
+            ) as prof:
+                with record_function("train_epoch"):
+                    train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+
+            print("\n" + "-" * 80)
+            print("Profiler Results: Epoch 1)")
+            print("-" * 80)
+            print(prof.key_averages().table(
+                sort_by="cuda_time_total",
+                row_limit=20
+            ))
+            print("-" * 80 + "\n")
+        else:
+            train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+
         val_metrics = evaluate(model, val_loader, criterion, device)
 
         if scheduler is not None:
@@ -264,7 +310,7 @@ def main() -> int:
         )
 
         current_metric = val_metrics["macro_f1"]
-        if current_metric > best_metric:
+        if current_metric > best_metric + min_delta:
             best_metric = current_metric
             best_epoch = epoch
             epochs_no_improve = 0
@@ -283,7 +329,8 @@ def main() -> int:
         save_json(history, history_path)
 
         if epochs_no_improve >= patience:
-            print(f"Early stopping triggered at epoch {epoch}. Best epoch: {best_epoch}, best val macro-F1: {best_metric:.4f}")
+            print(f"Early stopping triggered at epoch {epoch}, (patience: {patience}, min delta: {min_delta})")
+            print(f"Best epoch: {best_epoch}, best val macro-F1: {best_metric:.4f}")
             break
 
     summary = {
@@ -296,16 +343,14 @@ def main() -> int:
     }
     save_json(summary, Path(out_cfg["logs_dir"]) / "summary.json")
 
-    print("=" * 80)
+    print("-" * 100)
     print("Training complete")
     print(f"Best epoch:          {best_epoch}")
     print(f"Best val macro-F1:   {best_metric:.4f}")
     print(f"Checkpoint saved to: {ckpt_path}")
     print(f"History saved to:    {history_path}")
-    print("=" * 80)
-
+    print("-" * 100)
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
