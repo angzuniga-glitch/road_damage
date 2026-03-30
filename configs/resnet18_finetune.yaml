@@ -1,12 +1,11 @@
 seed: 1337
 
 data:
-  csv_path: data/crops.csv
+  split_dir: data/crops_80.10.10_split
   image_size: 224
-  train_split: train
-  val_split: val
   countries: null
   allowed_labels: [D00, D10, D20, D40]
+  cache_images: true
 
 model:
   name: resnet18
@@ -15,8 +14,9 @@ model:
 
 train:
   epochs: 15
-  batch_size: 64
-  num_workers: 4
+  batch_size: 128
+  num_workers: 6
+  prefetch_factor: 3
   optimizer: adamw
   lr: 0.0001
   weight_decay: 0.0001
