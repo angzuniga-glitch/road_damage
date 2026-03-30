@@ -268,6 +268,7 @@ def main() -> int:
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
                 profile_memory=True,
+                acc_events=False,
             ) as prof:
                 with record_function("train_epoch"):
                     train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
