@@ -5,7 +5,7 @@ data:
   image_size: 224
   countries: null
   allowed_labels: [D00, D10, D20, D40]
-  cache_images: true
+  cache_images: false
 
 model:
   name: custom_cnn
@@ -13,7 +13,7 @@ model:
   freeze_backbone: false
 
 train:
-  epochs: 20
+  epochs: 10
   batch_size: 128
   num_workers: 12
   prefetch_factor: 4

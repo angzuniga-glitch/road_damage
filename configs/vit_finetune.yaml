@@ -13,7 +13,7 @@ model:
   freeze_backbone: false
 
 train:
-  epochs: 20
+  epochs: 10
   batch_size: 128 # 32 was the previous
   num_workers: 12 # 4 was the previous
   prefetch_factor: 4
