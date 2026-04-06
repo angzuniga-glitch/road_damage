@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import torch.nn as nn
 import torchvision.models as tvm
 from torchvision.models import (
@@ -9,6 +10,8 @@ from torchvision.models import (
 import timm
 
 from src.models.custom_cnn import CustomCNN
+logging.getLogger("timm").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def freeze_module(module: nn.Module) -> None:
     for p in module.parameters():
