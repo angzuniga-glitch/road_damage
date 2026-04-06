@@ -1,0 +1,27 @@
+# core data science libraries
+numpy>=1.26.0
+pandas>=2.2.0
+scipy>=1.10.1
+
+# ML frameworks
+torch>=2.0.1
+torchvision>=0.15.2
+timm==0.9.2
+
+# configuration and utilities
+PyYAML==6.0.1
+tqdm==4.66.1
+
+# visualization
+matplotlib>=3.10.8
+seaborn>=0.12.2
+
+# ML utilities
+scikit-learn>=1.8.0
+
+# image processing
+Pillow==10.0.0
+opencv-python==4.8.0.74
+
+# data handling
+openpyxl==3.1.2
