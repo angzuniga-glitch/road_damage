@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -22,13 +23,23 @@ from src.utils import (
     set_seed,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("train.log", mode="a"),
+    ],
+)
+logger = logging.getLogger(__name__)
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train road-damage crop classifier.")
     p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
     return p.parse_args()
 
 def load_config(path: str | Path) -> Dict[str, Any]:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict[str, int]]:
@@ -42,42 +53,46 @@ def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict
 
     if split_dir:
         split_dir = Path(split_dir)
+        train_npy = split_dir / "train" / "train_annotations.npy"
+        val_npy = split_dir / "val" / "val_annotations.npy"
         train_pkl = split_dir / "train" / "train_annotations.pkl"
         val_pkl = split_dir / "val" / "val_annotations.pkl"
 
         train_ds = RDDBboxCropDataset(
-            pkl_path = str(train_pkl),
-            split = None,
-            transform = train_tf,
-            countries = data_cfg.get("countries"),
-            allowed_labels = data_cfg.get("allowed_labels"),
+            npy_path=str(train_npy) if train_npy.exists() else None,
+            pkl_path=str(train_pkl) if train_pkl.exists() else None,
+            split=None,
+            transform=train_tf,
+            countries=data_cfg.get("countries"),
+            allowed_labels=data_cfg.get("allowed_labels"),
             cache_images=cache_images,
         )
         val_ds = RDDBboxCropDataset(
-            pkl_path = str(val_pkl),
-            split = None,
-            transform = eval_tf,
-            countries = data_cfg.get("countries"),
-            allowed_labels = data_cfg.get("allowed_labels"),
+            npy_path=str(val_npy) if val_npy.exists() else None,
+            pkl_path=str(val_pkl) if val_pkl.exists() else None,
+            split=None,
+            transform=eval_tf,
+            countries=data_cfg.get("countries"),
+            allowed_labels=data_cfg.get("allowed_labels"),
             cache_images=cache_images,
         )
     else:
         csv_path = data_cfg["csv_path"]
         train_ds = RDDBboxCropDataset(
-            csv_path = csv_path,
-            split = data_cfg["train_split"],
-            transform = train_tf,
-            countries = data_cfg.get("countries"),
-            allowed_labels = data_cfg.get("allowed_labels"),
-            cache_images = cache_images,
+            csv_path=csv_path,
+            split=data_cfg["train_split"],
+            transform=train_tf,
+            countries=data_cfg.get("countries"),
+            allowed_labels=data_cfg.get("allowed_labels"),
+            cache_images=cache_images,
         )
         val_ds = RDDBboxCropDataset(
-            csv_path = csv_path,
-            split = data_cfg["val_split"],
-            transform = eval_tf,
-            countries = data_cfg.get("countries"),
-            allowed_labels = data_cfg.get("allowed_labels"),
-            cache_images = cache_images,
+            csv_path=csv_path,
+            split=data_cfg["val_split"],
+            transform=eval_tf,
+            countries=data_cfg.get("countries"),
+            allowed_labels=data_cfg.get("allowed_labels"),
+            cache_images=cache_images,
         )
     all_labels =sorted(set(row["label"] for row in train_ds.data))
     label_map = {label:idx for idx, label in enumerate(all_labels)}
@@ -187,8 +202,9 @@ def evaluate(
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        logits = model(images)
-        loss = criterion(logits, labels)
+        with torch.amp.autocast('cuda'):
+            logits = model(images)
+            loss = criterion(logits, labels)
 
         loss_meter.update(loss.item(), n=images.size(0))
 
@@ -204,6 +220,10 @@ def evaluate(
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
+
+    torch.set_float32_matmul_precision('high')
+    logging.getLogger("torch._inductor.utils").setLevel(logging.ERROR)
+    logger.info("\nStarting training with config: %s\n", args.config)
 
     set_seed(cfg.get("seed", 1337))
     device = get_device()
@@ -231,7 +251,7 @@ def main() -> int:
     scheduler = build_scheduler(cfg, optimizer)
     criterion = nn.CrossEntropyLoss()
 
-    print("-" * 80)
+    print("-" * 100)
     print(f"Config:              {args.config}")
     print(f"Device:              {device}")
     print(f"Model:               {model_cfg['name']}")
@@ -241,7 +261,7 @@ def main() -> int:
     print(f"Trainable params:    {count_trainable_parameters(model):,}")
     print(f"Train samples:       {len(train_loader.dataset)}")
     print(f"Val samples:         {len(val_loader.dataset)}")
-    print("-" * 80)
+    print("-" * 100)
 
     history = {
         "config": cfg,
@@ -262,13 +282,14 @@ def main() -> int:
     for epoch in range(1, cfg["train"]["epochs"] + 1):
         start = time.time()
 
-        # Profiling Block
+        # profiling block
         if epoch == 1:
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True,
+                acc_events=True,
             ) as prof:
                 with record_function("train_epoch"):
                     train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
@@ -276,7 +297,7 @@ def main() -> int:
             prof_dir = Path(out_cfg["logs_dir"]) / "profiler"
             prof_dir.mkdir(parents=True, exist_ok=True)
             prof.export_chrome_trace(str(prof_dir / "trace.json"))
-            with open(prof_dir / "profiler_results.txt", 'w') as f:
+            with open(prof_dir / "profiler_results.txt", 'w', encoding="utf-8") as f:
                 f.write(prof.key_averages().table(
                     sort_by="cuda_time_total",
                     row_limit=90
@@ -345,13 +366,18 @@ def main() -> int:
     save_json(summary, Path(out_cfg["logs_dir"]) / "summary.json")
 
     print("-" * 100)
-    print("Training complete")
+    logger.info("Training complete")
     print(f"Best epoch:          {best_epoch}")
     print(f"Best val macro-F1:   {best_metric:.4f}")
     print(f"Checkpoint saved to: {ckpt_path}")
     print(f"History saved to:    {history_path}")
     print("-" * 100)
+    
     return 0
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as e:
+        logger.error("Training failed with error: %s", e, exc_info=True)
+        raise
