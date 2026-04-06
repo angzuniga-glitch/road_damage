@@ -1,11 +1,13 @@
 from __future__ import annotations
 import json
+import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import pickle
 import pandas as pd
+import numpy as np
 from PIL import Image, ImageFile
 import torch
 from torch.utils.data import Dataset
@@ -13,6 +15,15 @@ from tqdm import tqdm
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("train.log", mode="a"),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CropSample:
@@ -32,14 +43,13 @@ def build_label_map(labels: Sequence[str]) -> Dict[str, int]:
 def save_label_map(label_map: Dict[str, int], out_path: str | Path) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w") as f:
+    with out_path.open("w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2, sort_keys=True)
 
 def load_label_map(path: str | Path) -> Dict[str, int]:
     path = Path(path)
-    with path.open("r") as f:
+    with path.open("r", encoding="utf-8") as f:
         obj = json.load(f)
-    # Ensure int values
     return {k: int(v) for k, v in obj.items()}
 
 def load_and_crop(s: CropSample) -> Image.Image:
@@ -57,14 +67,33 @@ class RDDBboxCropDataset(Dataset):
             self,
             csv_path: str = None,
             pkl_path: str = None,
+            npy_path: str = None,
             split: str = "train",
             transform: Optional[Callable] = None,
             countries: Optional[List[str]] = None,
             allowed_labels: Optional[List[str]] = None,
             cache_images: bool = False,
+            label_map: Optional[Dict[str, int]] = None,
     ):
-        if pkl_path and Path(pkl_path).exists():
-            print(f"Loading from pickle: {pkl_path}")
+        if npy_path and Path(npy_path).exists():
+            logger.info("\nLoading from numpy: %s", npy_path)
+            arr = np.load(npy_path, allow_pickle=True)
+            rows = []
+            for record in arr:
+                rows.append({
+                    'image_path': str(record['image_path']),
+                    'ann_path': str(record['ann_path']),
+                    'xmin': int(record['xmin']),
+                    'ymin': int(record['ymin']),
+                    'xmax': int(record['xmax']),
+                    'ymax': int(record['ymax']),
+                    'label': str(record['label']),
+                    'split': str(record['split']),
+                    'country': str(record['country']),
+                })
+            self.data = rows
+        elif pkl_path and Path(pkl_path).exists():
+            logger.info("\nLoading from pickle: %s\n", pkl_path)
             with open(pkl_path, 'rb') as f:
                 image_to_boxes = pickle.load(f)
 
@@ -84,7 +113,7 @@ class RDDBboxCropDataset(Dataset):
                     })
             self.data = rows
         elif csv_path:
-            print(f"Loading from CSV: {csv_path}")
+            logger.info("\nLoading from CSV: %s", csv_path)
             df = pd.read_csv(csv_path)
             if split:
                 df = df[df["split"] == split]
@@ -94,7 +123,7 @@ class RDDBboxCropDataset(Dataset):
                 df = df[df["label"].isin(allowed_labels)]
             self.data = df.to_dict('records')
         else:
-            raise ValueError("Either csv_path or pkl_path must be provided.")
+            raise ValueError("Either csv_path, pkl_path, or npy_path must be provided.")
 
         if countries:
             self.data = [row for row in self.data if row['country'] in countries]
@@ -105,7 +134,12 @@ class RDDBboxCropDataset(Dataset):
             raise ValueError("No samples after filtering.")
 
         all_labels = [row['label'] for row in self.data]
-        self.label_map = build_label_map(all_labels)
+        
+        if label_map is not None:
+            self.label_map = label_map
+        else:
+            self.label_map = build_label_map(all_labels)
+        
         self.id_to_label = {v: k for k, v in self.label_map.items()}
 
         self.samples: List[CropSample] = []
@@ -146,7 +180,6 @@ class RDDBboxCropDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         s = self.samples[idx]
 
-        # Use cached crop if available, else load from disk
         if self.cached_crops is not None:
             img = self.cached_crops[idx]
         else:
