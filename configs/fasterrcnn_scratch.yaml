@@ -1,0 +1,36 @@
+seed: 1337
+
+data:
+  rdd_root: /nfshome/data
+  train_split: train
+  val_split: val
+  split_mode: random
+  train_ratio: 0.8
+  val_ratio: 0.1
+  xml_glob: "**/annotations/xmls/*.xml"
+  image_dir_hint: "images"
+  countries: null
+  allowed_labels: [D00, D10, D20, D40]
+  hflip_prob: 0.5
+
+model:
+  name: fasterrcnn_resnet50_fpn
+  pretrained: false
+  freeze_backbone: false
+
+train:
+  epochs: 10
+  batch_size: 2
+  num_workers: 2
+  optimizer: sgd
+  lr: 0.005
+  momentum: 0.9
+  weight_decay: 0.0005
+  early_stopping_patience: 3
+
+outputs:
+  root_dir: outputs/fasterrcnn_scratch
+  checkpoints_dir: outputs/fasterrcnn_scratch/checkpoints
+  logs_dir: outputs/fasterrcnn_scratch/logs
+  best_checkpoint_name: best.pt
+  history_name: history.json

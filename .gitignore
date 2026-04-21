@@ -12,6 +12,10 @@ outputs/
 *.pth
 *.json
 *.png
+train.log
+eval.log
+*.zip
+data/crops_80.10.10_split/
 
 # OS/editor
 .DS_Store
