@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from torchvision import transforms as T
 import pickle
 import pandas as pd
 import numpy as np
@@ -74,6 +75,7 @@ class RDDBboxCropDataset(Dataset):
             allowed_labels: Optional[List[str]] = None,
             cache_images: bool = False,
             label_map: Optional[Dict[str, int]] = None,
+            image_size: int = 224, # Added 05.05.26
     ):
         if npy_path and Path(npy_path).exists():
             logger.info("\nLoading from numpy: %s", npy_path)
@@ -135,12 +137,28 @@ class RDDBboxCropDataset(Dataset):
 
         all_labels = [row['label'] for row in self.data]
         
+        # Added 05.05.26, logs extra labels as an warning, raises error for missing labels
         if label_map is not None:
-            self.label_map = label_map
+            current_label_set = set(all_labels)
+            map_label_set = set(label_map.keys())
+            
+            extra_in_map = map_label_set - current_label_set
+            missing_from_map = current_label_set - map_label_set
+
+            if extra_in_map:
+                logger.warning("label_map contains unused labels: %s", extra_in_map)
+            if missing_from_map:
+                raise ValueError(
+                    f"Dataset has labels not in label_map: {missing_from_map}. "
+                    f"Current data labels: {sorted(current_label_set)}, "
+                    f"label_map keys: {sorted(map_label_set)}"
+                )
+            self.label_map = dict(label_map)
         else:
             self.label_map = build_label_map(all_labels)
         
         self.id_to_label = {v: k for k, v in self.label_map.items()}
+        # End add
 
         self.samples: List[CropSample] = []
         for row in self.data:
@@ -157,6 +175,7 @@ class RDDBboxCropDataset(Dataset):
                 )
             )
         self.transform = transform
+        self.image_size = image_size # added 05.05.26
         self.cache_images = cache_images
 
         self.cached_crops: Optional[List[Image.Image]] = None
@@ -191,14 +210,25 @@ class RDDBboxCropDataset(Dataset):
             lower = max(upper + 1, min(s.ymax, h))
             img = img.crop((left, upper, right, lower))
 
+        # if self.transform is not None:
+        #     img = self.transform(img)
+        # else:
+        #     img = torch.from_numpy(
+        #         (torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
+        #          .view(img.size[1], img.size[0], 3)
+        #          .numpy())
+        #     ).permute(2, 0, 1).float() / 255.0
+
+        # Added 05.05.26, Removed manual conversion, switched to resize image
+        # and then convert ToTensor() for PIL image to [0, 1] float tensor
         if self.transform is not None:
             img = self.transform(img)
         else:
-            img = torch.from_numpy(
-                (torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
-                 .view(img.size[1], img.size[0], 3)
-                 .numpy())
-            ).permute(2, 0, 1).float() / 255.0
+            img = T.Compose([
+                T.Resize((self.image_size, self.image_size)),
+                T.ToTensor()
+            ])(img)
+        # End add
 
         label_id = self.label_map[s.label]
         return img, label_id
