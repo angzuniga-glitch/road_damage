@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-import logging
 import pickle
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -15,16 +14,6 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("train.log", mode="a"),
-    ],
-)
-logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CropSample:
@@ -75,10 +64,10 @@ class RDDBboxCropDataset(Dataset):
             allowed_labels: Optional[List[str]] = None,
             cache_images: bool = False,
             label_map: Optional[Dict[str, int]] = None,
-            image_size: int = 224, # Added 05.05.26
+            image_size: int = 224,
     ):
         if npy_path and Path(npy_path).exists():
-            logger.info("\nLoading from numpy: %s", npy_path)
+            print(f"\nLoading from numpy: {npy_path}")
             arr = np.load(npy_path, allow_pickle=True)
             rows = []
             for record in arr:
@@ -95,7 +84,7 @@ class RDDBboxCropDataset(Dataset):
                 })
             self.data = rows
         elif pkl_path and Path(pkl_path).exists():
-            logger.info("\nLoading from pickle: %s\n", pkl_path)
+            print(f"\nLoading from pickle: \n{pkl_path}")
             with open(pkl_path, 'rb') as f:
                 image_to_boxes = pickle.load(f)
 
@@ -115,7 +104,7 @@ class RDDBboxCropDataset(Dataset):
                     })
             self.data = rows
         elif csv_path:
-            logger.info("\nLoading from CSV: %s", csv_path)
+            print(f"\nLoading from CSV: {csv_path}")
             df = pd.read_csv(csv_path)
             if split:
                 df = df[df["split"] == split]
@@ -137,7 +126,6 @@ class RDDBboxCropDataset(Dataset):
 
         all_labels = [row['label'] for row in self.data]
         
-        # Added 05.05.26, logs extra labels as an warning, raises error for missing labels
         if label_map is not None:
             current_label_set = set(all_labels)
             map_label_set = set(label_map.keys())
@@ -146,7 +134,7 @@ class RDDBboxCropDataset(Dataset):
             missing_from_map = current_label_set - map_label_set
 
             if extra_in_map:
-                logger.warning("label_map contains unused labels: %s", extra_in_map)
+                print(f"label_map contains unused labels: {extra_in_map}")
             if missing_from_map:
                 raise ValueError(
                     f"Dataset has labels not in label_map: {missing_from_map}. "
@@ -158,7 +146,6 @@ class RDDBboxCropDataset(Dataset):
             self.label_map = build_label_map(all_labels)
         
         self.id_to_label = {v: k for k, v in self.label_map.items()}
-        # End add
 
         self.samples: List[CropSample] = []
         for row in self.data:
@@ -175,7 +162,7 @@ class RDDBboxCropDataset(Dataset):
                 )
             )
         self.transform = transform
-        self.image_size = image_size # added 05.05.26
+        self.image_size = image_size 
         self.cache_images = cache_images
 
         self.cached_crops: Optional[List[Image.Image]] = None
@@ -210,8 +197,6 @@ class RDDBboxCropDataset(Dataset):
             lower = max(upper + 1, min(s.ymax, h))
             img = img.crop((left, upper, right, lower))
 
-        # Added 05.05.26, Removed manual conversion, switched to resize image
-        # and then convert ToTensor() for PIL image to [0, 1] float tensor
         if self.transform is not None:
             img = self.transform(img)
         else:
@@ -219,7 +204,6 @@ class RDDBboxCropDataset(Dataset):
                 T.Resize((self.image_size, self.image_size)),
                 T.ToTensor()
             ])(img)
-        # End add
 
         label_id = self.label_map[s.label]
         return img, label_id

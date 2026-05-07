@@ -24,7 +24,7 @@ train:
   epochs: 50
   batch_size: 2
   grad_accum_steps: 8
-  num_workers: 2
+  num_workers: 4
   optimizer: sgd
   lr: 0.002
   momentum: 0.9

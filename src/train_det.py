@@ -156,8 +156,6 @@ def train_one_epoch(model, loader, optimizer, device, scaler, scheduler,
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none = True)
-            if scheduler is not None and scaler.get_scale() == scale_before:
-                scheduler.step()
 
         total_loss += float(loss.item()) * accum_steps
         total_batches += 1
@@ -285,6 +283,8 @@ def main() -> int:
             grad_clip=grad_clip, accum_steps=accum_steps,
         )
         val_loss = validate_one_epoch(model, val_loader, device)
+        if scheduler is not None:
+            scheduler.step()
         dt = time.time() - t0
  
         current_lr = optimizer.param_groups[0]["lr"]
