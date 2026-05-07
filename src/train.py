@@ -1,15 +1,18 @@
 from __future__ import annotations
+
 import argparse
 import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
+
 import yaml
 import torch
 import torch.nn as nn
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.optim import AdamW, SGD
 from torch.utils.data import DataLoader
+
 from src.data.dataset import RDDBboxCropDataset, save_label_map
 from src.data.transforms import get_train_transforms, get_eval_transforms
 from src.models.factory import create_model, count_trainable_parameters
@@ -36,10 +39,12 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train road-damage crop classifier.")
     p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
+    p.add_argument("--profile", action="store_true",
+                   help="Run torch profiler on epoch 1 and save trace to outputs/profiler/.")
     return p.parse_args()
 
 def load_config(path: str | Path) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r") as f:
         return yaml.safe_load(f)
 
 def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict[str, int]]:
@@ -247,7 +252,7 @@ def main() -> int:
     model = torch.compile(model)
 
     optimizer = build_optimizer(cfg, model)
-    scaler = torch.amp.GradScaler()
+    scaler = torch.amp.GradScaler("cuda")
     scheduler = build_scheduler(cfg, optimizer)
     criterion = nn.CrossEntropyLoss()
 
@@ -289,7 +294,6 @@ def main() -> int:
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True,
-                acc_events=True,
             ) as prof:
                 with record_function("train_epoch"):
                     train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
