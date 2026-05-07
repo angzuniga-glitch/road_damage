@@ -12,8 +12,7 @@ from torch.utils.data import DataLoader
 
 from src.data.dataset_det import RDDDetectionDataset, DetectionTransform, detection_collate_fn
 from src.models.detection_factory import create_detection_model
-from src.utils import ensure_dir, get_device, load_checkpoint, save_json
-
+from src.utils import box_iou, compute_detection_metrics, ensure_dir, get_device, load_checkpoint, save_json, set_seed
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate Faster R-CNN on RDD2022.")
@@ -25,223 +24,50 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_viz", type=int, default=8, help="Number of qualitative prediction images to save.")
     return p.parse_args()
 
-
 def load_config(path: str | Path) -> Dict[str, Any]:
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-
-def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """
-    boxes1: [N,4], boxes2: [M,4] in xyxy format
-    returns IoU matrix [N,M]
-    """
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=torch.float32)
-
-    area1 = (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-    area2 = (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
-
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])   # [N,M,2]
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])   # [N,M,2]
-    wh = (rb - lt).clamp(min=0)                          # [N,M,2]
-    inter = wh[:, :, 0] * wh[:, :, 1]                   # [N,M]
-
-    union = area1[:, None] + area2 - inter
-    return inter / union.clamp(min=1e-6)
-
-
 @torch.no_grad()
-def compute_val_loss(model, loader, device) -> float:
-    """
-    Detection models in torchvision return losses in train mode when targets are passed.
-    """
+def run_predictions(model, loader, device, max_viz: int):
+
+    # val loss
     model.train()
     total_loss = 0.0
     total_batches = 0
-
     for images, targets in loader:
-        images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        loss_dict = model(images, targets)
-        loss = sum(loss_dict.values())
-        total_loss += float(loss.item())
+        images_dev = [img.to(device) for img in images]
+        targets_dev = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        loss_dict = model(images_dev, targets_dev)
+        total_loss += float(sum(loss_dict.values()).item())
         total_batches += 1
+    val_loss = total_loss / max(total_batches, 1)
 
-    return total_loss / max(total_batches, 1)
-
-
-@torch.no_grad()
-def collect_predictions(model, loader, device):
+    # predictions
     model.eval()
-    all_images = []
-    all_targets = []
-    all_preds = []
+    all_targets: List[Dict] = []
+    all_preds: List[Dict] = []
+    viz_images: List = []
+    viz_targets: List = []
+    viz_preds: List = []
 
     for images, targets in loader:
         images_dev = [img.to(device) for img in images]
-        preds = model(images_dev)
+        batch_preds = model(images_dev)
 
-        for img, tgt, pred in zip(images, targets, preds):
-            # move prediction tensors to cpu
+        for img, tgt, pred in zip(images, targets, batch_preds):
             pred_cpu = {k: v.detach().cpu() for k, v in pred.items()}
-            tgt_cpu = {k: v.detach().cpu() for k, v in tgt.items()}
-            all_images.append(img.cpu())
-            all_targets.append(tgt_cpu)
+            tgt_cpu  = {k: v.detach().cpu() for k, v in tgt.items()}
+
+            all_targets.append({"boxes": tgt_cpu["boxes"], "labels": tgt_cpu["labels"]})
             all_preds.append(pred_cpu)
 
-    return all_images, all_targets, all_preds
+            if len(viz_images) < max_viz:
+                viz_images.append(img.cpu())
+                viz_targets.append(tgt_cpu)
+                viz_preds.append(pred_cpu)
 
-
-def match_detections_for_class(
-    pred_boxes: torch.Tensor,
-    pred_scores: torch.Tensor,
-    gt_boxes: torch.Tensor,
-    iou_thresh: float,
-) -> Tuple[List[int], int]:
-    """
-    Greedy matching for a single class.
-    Returns:
-      - list of TP flags aligned with sorted predictions
-      - number of GT boxes
-    """
-    if pred_boxes.numel() == 0:
-        return [], int(gt_boxes.shape[0])
-
-    if gt_boxes.numel() == 0:
-        return [0] * pred_boxes.shape[0], 0
-
-    order = torch.argsort(pred_scores, descending=True)
-    pred_boxes = pred_boxes[order]
-
-    ious = box_iou(pred_boxes, gt_boxes)
-    matched_gt = set()
-    tp_flags: List[int] = []
-
-    for i in range(pred_boxes.shape[0]):
-        best_iou, best_j = torch.max(ious[i], dim=0)
-        j = int(best_j.item())
-        if float(best_iou.item()) >= iou_thresh and j not in matched_gt:
-            tp_flags.append(1)
-            matched_gt.add(j)
-        else:
-            tp_flags.append(0)
-
-    return tp_flags, int(gt_boxes.shape[0])
-
-
-def compute_detection_metrics(
-    targets: List[Dict[str, torch.Tensor]],
-    preds: List[Dict[str, torch.Tensor]],
-    label_map: Dict[str, int],
-    score_thresh: float = 0.5,
-    iou_thresh: float = 0.5,
-) -> Dict[str, Any]:
-    """
-    Computes:
-      - precision@IoU
-      - recall@IoU
-      - F1@IoU
-      - per-class versions
-      - a simple AP50 approximation from precision-recall ranking
-    """
-    class_ids = sorted(label_map.values())
-    id_to_label = {v: k for k, v in label_map.items()}
-
-    per_class = {}
-    macro_precision = []
-    macro_recall = []
-    macro_f1 = []
-    macro_ap50 = []
-
-    for cid in class_ids:
-        scores_all: List[float] = []
-        tp_flags_all: List[int] = []
-        total_gt = 0
-
-        for tgt, pred in zip(targets, preds):
-            gt_mask = tgt["labels"] == cid
-            gt_boxes = tgt["boxes"][gt_mask]
-
-            pred_mask = (pred["labels"] == cid) & (pred["scores"] >= score_thresh)
-            pred_boxes = pred["boxes"][pred_mask]
-            pred_scores = pred["scores"][pred_mask]
-
-            tp_flags, gt_count = match_detections_for_class(
-                pred_boxes=pred_boxes,
-                pred_scores=pred_scores,
-                gt_boxes=gt_boxes,
-                iou_thresh=iou_thresh,
-            )
-
-            if pred_scores.numel() > 0:
-                scores_sorted, _ = torch.sort(pred_scores, descending=True)
-                scores_all.extend([float(x) for x in scores_sorted.tolist()])
-                tp_flags_all.extend(tp_flags)
-
-            total_gt += gt_count
-
-        # Sort again globally by score
-        if len(scores_all) > 0:
-            order = sorted(range(len(scores_all)), key=lambda i: scores_all[i], reverse=True)
-            tp_flags_all = [tp_flags_all[i] for i in order]
-
-        fp_flags_all = [1 - x for x in tp_flags_all]
-
-        tp_cum = []
-        fp_cum = []
-        running_tp = 0
-        running_fp = 0
-        for tp, fp in zip(tp_flags_all, fp_flags_all):
-            running_tp += tp
-            running_fp += fp
-            tp_cum.append(running_tp)
-            fp_cum.append(running_fp)
-
-        if len(tp_cum) == 0:
-            precision = 0.0
-            recall = 0.0
-            f1 = 0.0
-            ap50 = 0.0
-        else:
-            precisions = [tp / max(tp + fp, 1) for tp, fp in zip(tp_cum, fp_cum)]
-            recalls = [tp / max(total_gt, 1) for tp in tp_cum]
-
-            precision = precisions[-1]
-            recall = recalls[-1]
-            f1 = 0.0 if (precision + recall) == 0 else 2 * precision * recall / (precision + recall)
-
-            # Simple AP approximation using trapezoidal area under PR curve
-            prev_recall = 0.0
-            ap50 = 0.0
-            for p, r in zip(precisions, recalls):
-                ap50 += p * max(r - prev_recall, 0.0)
-                prev_recall = r
-
-        per_class[id_to_label[cid]] = {
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-            "ap50": ap50,
-            "support_gt": total_gt,
-            "num_predictions": len(tp_flags_all),
-        }
-
-        macro_precision.append(precision)
-        macro_recall.append(recall)
-        macro_f1.append(f1)
-        macro_ap50.append(ap50)
-
-    metrics = {
-        "precision@50": sum(macro_precision) / max(len(macro_precision), 1),
-        "recall@50": sum(macro_recall) / max(len(macro_recall), 1),
-        "f1@50": sum(macro_f1) / max(len(macro_f1), 1),
-        "map50_approx": sum(macro_ap50) / max(len(macro_ap50), 1),
-        "per_class": per_class,
-    }
-    return metrics
-
+    return val_loss, all_targets, all_preds, viz_images, viz_targets, viz_preds
 
 def draw_boxes(
     image_tensor: torch.Tensor,
@@ -261,12 +87,8 @@ def draw_boxes(
     for box, label in zip(target["boxes"], target["labels"]):
         xmin, ymin, xmax, ymax = box.tolist()
         rect = patches.Rectangle(
-            (xmin, ymin),
-            xmax - xmin,
-            ymax - ymin,
-            linewidth=2,
-            edgecolor="lime",
-            facecolor="none",
+            (xmin, ymin), xmax - xmin, ymax - ymin,
+            linewidth=2, edgecolor="lime", facecolor="none",
         )
         ax.add_patch(rect)
         ax.text(xmin, max(ymin - 4, 0), f"GT:{id_to_label[int(label)]}", color="lime", fontsize=8)
@@ -303,10 +125,11 @@ def draw_boxes(
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
+
+    set_seed(cfg.get("seed", 1337))
     device = get_device()
 
     out_cfg = cfg["outputs"]
@@ -316,6 +139,11 @@ def main() -> int:
 
     data_cfg = cfg["data"]
     allowed_labels = data_cfg["allowed_labels"]
+
+    cache_path = data_cfg.get(
+        "ann_cache_path",
+        str(Path("outputs") / f".ann_cache_{args.split}.pkl"),
+    )
 
     ds = RDDDetectionDataset(
         rdd_root=data_cfg["rdd_root"],
@@ -329,16 +157,15 @@ def main() -> int:
         seed=cfg.get("seed", 1337),
         xml_glob=data_cfg.get("xml_glob", "**/annotations/xmls/*.xml"),
         image_dir_hint=data_cfg.get("image_dir_hint", "images"),
+        cache_path=cache_path,
     )
 
-    num_workers = cfg["train"].get("num_workers", 2)
-    pin_memory = torch.cuda.is_available()
     loader = DataLoader(
         ds,
         batch_size=cfg["train"]["batch_size"],
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        num_workers=cfg["train"].get("num_workers", 4),
+        pin_memory=torch.cuda.is_available(),
         collate_fn=detection_collate_fn,
     )
 
@@ -353,11 +180,13 @@ def main() -> int:
 
     ckpt_meta = load_checkpoint(args.checkpoint, model=model, optimizer=None, map_location=device)
 
-    val_loss = compute_val_loss(model, loader, device)
-    images, targets, preds = collect_predictions(model, loader, device)
+    val_loss, all_targets, all_preds, viz_images, viz_targets, viz_preds = run_predictions(
+        model, loader, device, max_viz=args.max_viz,
+    )
+
     metrics = compute_detection_metrics(
-        targets=targets,
-        preds=preds,
+        targets=all_targets,
+        preds=all_preds,
         label_map=ds.label_map,
         score_thresh=args.score_thresh,
         iou_thresh=args.iou_thresh,
@@ -398,12 +227,11 @@ def main() -> int:
     fig_dir = Path(out_cfg["root_dir"]) / "figures" / f"predictions_{args.split}"
     ensure_dir(fig_dir)
 
-    n_viz = min(args.max_viz, len(images))
-    for i in range(n_viz):
+    for i, (img, tgt, pred) in enumerate(zip(viz_images, viz_targets, viz_preds)):
         draw_boxes(
-            image_tensor=images[i],
-            target=targets[i],
-            pred=preds[i],
+            image_tensor=img,
+            target=tgt,
+            pred=pred,
             out_path=fig_dir / f"sample_{i:03d}.png",
             id_to_label=id_to_label,
             score_thresh=args.score_thresh,
@@ -413,7 +241,6 @@ def main() -> int:
     print(f"Saved prediction figs: {fig_dir}")
 
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
