@@ -1,12 +1,12 @@
 from __future__ import annotations
 import json
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import pickle
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from torchvision import transforms as T
-import pickle
 import pandas as pd
 import numpy as np
 from PIL import Image, ImageFile
@@ -209,15 +209,6 @@ class RDDBboxCropDataset(Dataset):
             right = max(left + 1, min(s.xmax, w))
             lower = max(upper + 1, min(s.ymax, h))
             img = img.crop((left, upper, right, lower))
-
-        # if self.transform is not None:
-        #     img = self.transform(img)
-        # else:
-        #     img = torch.from_numpy(
-        #         (torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
-        #          .view(img.size[1], img.size[0], 3)
-        #          .numpy())
-        #     ).permute(2, 0, 1).float() / 255.0
 
         # Added 05.05.26, Removed manual conversion, switched to resize image
         # and then convert ToTensor() for PIL image to [0, 1] float tensor

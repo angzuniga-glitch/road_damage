@@ -6,7 +6,11 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 def get_train_transforms(image_size: int = 224):
     return transforms.Compose([
-        transforms.Resize((image_size, image_size)),
+        transforms.RandomResizedCrop(
+            image_size,
+            scale=(0.8, 1.0),   
+            ratio=(0.9, 1.1),   
+        ),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(degrees=15),
         transforms.ColorJitter(

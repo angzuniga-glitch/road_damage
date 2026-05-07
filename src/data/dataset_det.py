@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pickle
+import random
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -17,17 +19,37 @@ class DetectionTransform:
     - PIL image -> tensor
     - optional random horizontal flip
     """
-    def __init__(self, train: bool = False, hflip_prob: float = 0.5) -> None:
+    def __init__(self, train: bool = False, hflip_prob: float = 0.5,                  
+                min_sizes: tuple = (480, 512, 544, 576, 608, 640),
+                max_size: int = 1333) -> None:
         self.train = train
         self.hflip_prob = hflip_prob
+        self.min_sizes = min_sizes
+        self.max_size = max_size
 
     def __call__(self, image: Image.Image, target: Dict) -> Tuple[torch.Tensor, Dict]:
+        
+        w, h = image.size
+        if self.train:
+            target_min = random.choice(self.min_sizes)
+
+            scale = target_min / min(h, w)
+            if scale * max(h,w) > self.max_size:
+                scale = self.max_size / max(h, w)
+                
+            new_w = int(round(w * scale))
+            new_h = int(round(h * scale))
+            image = image.resize((new_w, new_h), resample = Image.Resampling.BILINEAR)
+            
+            if "boxes" in target and len(target["boxes"]) > 0:
+                target["boxes"] = target["boxes"].clone() * scale
+
         image = F.to_tensor(image)
+
 
         if self.train and torch.rand(1).item() < self.hflip_prob:
             _, h, w = image.shape
             image = torch.flip(image, dims=[2])
-
             boxes = target["boxes"].clone()
             xmin = boxes[:, 0].clone()
             xmax = boxes[:, 2].clone()
@@ -52,6 +74,8 @@ class RDDDetectionDataset(Dataset):
         seed: int = 1337,
         xml_glob: str = "**/annotations/xmls/*.xml",
         image_dir_hint: str = "images",
+        cache_annotations: bool = True,
+        cache_path: Optional[str] = None,
     ) -> None:
         super().__init__()
         self.rdd_root = rdd_root
@@ -76,6 +100,58 @@ class RDDDetectionDataset(Dataset):
         if len(self.records) == 0:
             raise ValueError(f"No detection records found for split='{split}'")
 
+        self._ann_cache: Optional[List[Dict]] = None
+        if cache_annotations:
+            _cache_path = Path(cache_path) if cache_path else \
+                Path("outputs") / f".ann_cache_{split}.pkl"
+ 
+            if _cache_path.exists():
+                print(f"[{split}] Loading annotation cache: {_cache_path}")
+                with open(_cache_path, "rb") as f:
+                    self._ann_cache = pickle.load(f)
+            else:
+                print(f"[{split}] Building annotation cache for {len(self.records)} images …")
+                self._ann_cache = [
+                    self._parse_target(rec, idx) for idx, rec in enumerate(self.records)
+                ]
+                _cache_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(_cache_path, "wb") as f:
+                    pickle.dump(self._ann_cache, f)
+                print(f"[{split}] Cache saved → {_cache_path}")
+
+    def _parse_target(self, rec: Dict, idx: int) -> Dict:
+
+        ann_path = rec["ann_path"]
+        _width, _height, objects = parse_voc_xml(ann_path)
+ 
+        boxes : List[List[float]] = []
+        labels: List[int]         = []
+ 
+        for label_str, (xmin, ymin, xmax, ymax) in objects:
+            if label_str not in self.label_map:
+                continue
+            boxes.append([float(xmin), float(ymin), float(xmax), float(ymax)])
+            labels.append(self.label_map[label_str])
+ 
+        if boxes:
+            boxes_t  = torch.tensor(boxes,  dtype=torch.float32)
+            labels_t = torch.tensor(labels, dtype=torch.int64)
+            area     = (boxes_t[:, 2] - boxes_t[:, 0]) * (boxes_t[:, 3] - boxes_t[:, 1])
+            iscrowd  = torch.zeros(len(boxes), dtype=torch.int64)
+        else:
+            boxes_t  = torch.zeros((0, 4), dtype=torch.float32)
+            labels_t = torch.zeros((0,),   dtype=torch.int64)
+            area     = torch.zeros((0,),   dtype=torch.float32)
+            iscrowd  = torch.zeros((0,),   dtype=torch.int64)
+ 
+        return {
+            "boxes"   : boxes_t,
+            "labels"  : labels_t,
+            "image_id": torch.tensor([idx], dtype=torch.int64),
+            "area"    : area,
+            "iscrowd" : iscrowd,
+        }
+
     def __len__(self) -> int:
         return len(self.records)
 
@@ -85,44 +161,20 @@ class RDDDetectionDataset(Dataset):
         ann_path = rec["ann_path"]
 
         image = Image.open(image_path).convert("RGB")
-        width, height, objects = parse_voc_xml(ann_path)
 
-        boxes: List[List[float]] = []
-        labels: List[int] = []
-
-        for label_str, (xmin, ymin, xmax, ymax) in objects:
-            if label_str not in self.label_map:
-                continue
-            boxes.append([float(xmin), float(ymin), float(xmax), float(ymax)])
-            labels.append(self.label_map[label_str])
-
-        if len(boxes) == 0:
-            # Should already be filtered out, but keep this defensive.
-            boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
-            labels_tensor = torch.zeros((0,), dtype=torch.int64)
-            area = torch.zeros((0,), dtype=torch.float32)
-            iscrowd = torch.zeros((0,), dtype=torch.int64)
+        if self._ann_cache is not None:
+            raw = self._ann_cache[idx]
+            target = {k: v.clone() if isinstance(v, torch.Tensor) else v
+                      for k, v in raw.items()}
         else:
-            boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
-            labels_tensor = torch.tensor(labels, dtype=torch.int64)
-            area = (boxes_tensor[:, 2] - boxes_tensor[:, 0]) * (boxes_tensor[:, 3] - boxes_tensor[:, 1])
-            iscrowd = torch.zeros((len(boxes),), dtype=torch.int64)
-
-        target = {
-            "boxes": boxes_tensor,
-            "labels": labels_tensor,
-            "image_id": torch.tensor([idx], dtype=torch.int64),
-            "area": area,
-            "iscrowd": iscrowd,
-        }
-
+            target = self._parse_target(rec, idx)
+ 
         if self.transform is not None:
             image, target = self.transform(image, target)
         else:
             image = F.to_tensor(image)
-
+ 
         return image, target
-
 
 def detection_collate_fn(batch):
     return tuple(zip(*batch))
