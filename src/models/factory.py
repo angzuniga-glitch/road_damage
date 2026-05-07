@@ -76,8 +76,7 @@ def _build_vit(
         # Re-enable classification head only
         # timm ViTs usually expose .head
         if hasattr(model, "head") and isinstance(model.head, nn.Module):
-            in_features = model.head.in_features
-            model.head = nn.Linear(in_features, num_classes)
+            unfreeze_module(model.head)
         else:
             raise ValueError(f"Model {name} does not expose a standard .head for freezing/fine-tuning.")
 
