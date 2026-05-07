@@ -26,12 +26,12 @@ train:
   grad_accum_steps: 8
   num_workers: 6
   optimizer: sgd
-  lr: 0.002
+  lr: 0.001
   momentum: 0.9
   weight_decay: 0.0005
   grad_clip: 5.0
   scheduler: cosine
-  early_stopping_patience: 5
+  early_stopping_patience: 10
 
 outputs:
   root_dir: outputs/fasterrcnn_finetune
