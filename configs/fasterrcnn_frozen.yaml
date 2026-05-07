@@ -1,7 +1,7 @@
 seed: 1337
 
 data:
-  rdd_root: /nfshome/data
+  rdd_root: /share_data/data
   train_split: train
   val_split: val
   split_mode: random
@@ -19,13 +19,18 @@ model:
   freeze_backbone: true
 
 train:
+  multiscale_min_sizes: [480, 512, 544, 576, 608, 640]
+  multiscale_max_size: 1333
   epochs: 8
   batch_size: 2
-  num_workers: 4
+  grad_accum_steps: 8
+  num_workers: 6
   optimizer: sgd
-  lr: 0.005
+  lr: 0.002
   momentum: 0.9
   weight_decay: 0.0005
+  grad_clip: 5.0
+  scheduler: cosine
   early_stopping_patience: 3
 
 outputs:
