@@ -158,7 +158,6 @@ class RDDDetectionDataset(Dataset):
     def __getitem__(self, idx: int):
         rec = self.records[idx]
         image_path = rec["image_path"]
-        ann_path = rec["ann_path"]
 
         image = Image.open(image_path).convert("RGB")
 
