@@ -31,7 +31,7 @@ train:
   weight_decay: 0.0002
   grad_clip: 5.0
   scheduler: cosine
-  early_stopping_patience: 3
+  early_stopping_patience: 5
 
 outputs:
   root_dir: outputs/fasterrcnn_scratch
