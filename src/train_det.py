@@ -197,7 +197,7 @@ def main() -> int:
     run_start = time.time()
     log_path = Path(cfg["outputs"]["logs_dir"]) / "train.log"
     ensure_dir(cfg["outputs"]["logs_dir"])
-
+    logging.root.handlers.clear()
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -257,9 +257,9 @@ def main() -> int:
     print(f"Train samples:     {len(train_loader.dataset)}")
     print(f"Val samples:       {len(val_loader.dataset)}")
     print(f"Trainable params:  {count_trainable_parameters(model):,}")
-    print(f"Batch size        : {train_cfg['batch_size']}  ×  accum {accum_steps}  =  effective {train_cfg['batch_size'] * accum_steps}")
-    print(f"AMP               : {'enabled' if device.type == 'cuda' else 'disabled (CPU)'}")
-    print(f"Scheduler         : {train_cfg.get('scheduler', 'onecycle')}")
+    print(f"Batch size:        {train_cfg['batch_size']}  ×  accum {accum_steps}  =  effective {train_cfg['batch_size'] * accum_steps}")
+    print(f"AMP:               {'enabled' if device.type == 'cuda' else 'disabled (CPU)'}")
+    print(f"Scheduler:         {train_cfg.get('scheduler', 'onecycle')}")
     print("=" * 100)
 
     best_val_loss = float("inf")
