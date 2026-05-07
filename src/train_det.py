@@ -21,7 +21,6 @@ from src.data.dataset_det import RDDDetectionDataset, DetectionTransform, detect
 from src.models.detection_factory import create_detection_model, count_trainable_parameters
 from src.utils import ensure_dir, get_device, save_checkpoint, save_json, set_seed
 
-# CLI
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train object detector on RDD2022.")
     p.add_argument("--config", type=str, required=True)
@@ -132,7 +131,7 @@ def build_scheduler(cfg: Dict[str, Any], optimizer, steps_per_epoch: int):
     return None
 
 
-def train_one_epoch(model, loader, optimizer, device, scaler, scheduler, 
+def train_one_epoch(model, loader, optimizer, device, scaler, 
                     grad_clip: float = 5.0, accum_steps: int = 1) -> float:
     model.train()
     total_loss = 0.0
@@ -279,8 +278,8 @@ def main() -> int:
  
         train_loss = train_one_epoch(
             model, train_loader, optimizer, device,
-            scaler=scaler, scheduler=scheduler,
-            grad_clip=grad_clip, accum_steps=accum_steps,
+            scaler=scaler, grad_clip=grad_clip, 
+            accum_steps=accum_steps,
         )
         val_loss = validate_one_epoch(model, val_loader, device)
         if scheduler is not None:
@@ -297,16 +296,16 @@ def main() -> int:
             f"Epoch {epoch:03d}/{epochs} | "
             f"train={train_loss:.4f} | val={val_loss:.4f} | "
             f"lr={current_lr:.2e} | epoch_time={dt:.1f}s | "
-            f"elapsed={elapsed}"
-            f"LR after scheduler step: {optimizer.param_groups[0]['lr']:.2e}"
+            f"elapsed={elapsed} | "
+            f"LR post step: {optimizer.param_groups[0]['lr']:.2e}"
         )
         
         print(
             f"Epoch {epoch:03d}/{epochs} | "
             f"train={train_loss:.4f} | val={val_loss:.4f} | "
             f"lr={current_lr:.2e} | epoch_time={dt:.1f}s | "
-            f"elapsed={elapsed}"
-            f"LR after scheduler step: {optimizer.param_groups[0]['lr']:.2e}"
+            f"elapsed={elapsed} | "
+            f"LR post step: {optimizer.param_groups[0]['lr']:.2e}"
         )
  
         if val_loss < best_val_loss:
