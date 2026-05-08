@@ -105,16 +105,9 @@ def load_checkpoint(
     try:
         model.load_state_dict(state_dict)
     except RuntimeError:
-        stripped = {}
-        for k, v in state_dict.items():
-            new_k = k
-            for prefix in ("_orig_mod.", "_orig_mod_"):
-                if new_k.startswith(prefix):
-                    new_k = new_k[len(prefix):]
-                    break
-            stripped[new_k] = v
+        stripped = {k.replace("._orig_mod.", "."): v for k, v in state_dict.items()}
         model.load_state_dict(stripped)
-
+        
     if optimizer is not None and ckpt.get("optimizer_state_dict") is not None:
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
