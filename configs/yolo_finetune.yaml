@@ -1,0 +1,41 @@
+seed: 1337
+
+yolo_data_dir: yolo_dataset
+
+data:
+  rdd_root: /share_data/data
+  train_split: train
+  val_split: val
+  split_mode: random
+  train_ratio: 0.8
+  val_ratio: 0.1
+  xml_glob: "**/annotations/xmls/*.xml"
+  image_dir_hint: "images"
+  countries: null
+  allowed_labels: [D00, D10, D20, D40]
+  hflip_prob: 0.5
+
+model:
+  name: yolov8n.pt   
+  pretrained: true
+  freeze_backbone: false
+
+train:
+  epochs: 50
+  imgsz: 640
+  batch_size: 16
+  num_workers: 4
+  lr: 0.01
+  lrf: 0.01           
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  early_stopping_patience: 10
+  close_mosaic: 10    
+
+outputs:
+  root_dir: outputs/yolov8n_finetune
+  checkpoints_dir: outputs/yolov8n_finetune/checkpoints
+  logs_dir: outputs/yolov8n_finetune/logs
+  best_checkpoint_name: best.pt
+  history_name: history.json

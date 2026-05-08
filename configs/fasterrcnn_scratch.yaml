@@ -21,17 +21,17 @@ model:
 train:
   multiscale_min_sizes: [480, 512, 544, 576, 608, 640]
   multiscale_max_size: 1333
-  epochs: 10
+  epochs: 50
   batch_size: 2
   grad_accum_steps: 8
   num_workers: 4
   optimizer: sgd
-  lr: 0.005
+  lr: 0.001
   momentum: 0.9
   weight_decay: 0.0002
   grad_clip: 5.0
   scheduler: cosine
-  early_stopping_patience: 5
+  early_stopping_patience: 10
 
 outputs:
   root_dir: outputs/fasterrcnn_scratch
