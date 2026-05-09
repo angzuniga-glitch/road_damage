@@ -11,14 +11,18 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from src.data.dataset_det import RDDDetectionDataset, DetectionTransform, detection_collate_fn
+from src.data.dataset_det import (
+    RDDDetectionDataset,
+    DetectionTransform,
+    detection_collate_fn,
+)
 from src.models.detection_factory import create_detection_model
 from src.utils import (
-    compute_detection_metrics, 
-    ensure_dir, 
-    get_device, 
-    load_checkpoint, 
-    save_json, 
+    compute_detection_metrics,
+    ensure_dir,
+    get_device,
+    load_checkpoint,
+    save_json,
     set_seed,
     setup_logging,
 )
@@ -26,19 +30,39 @@ from src.utils import (
 SEP = "=" * 100
 logger = logging.getLogger(__name__)
 
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate Faster R-CNN on RDD2022.")
     p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
-    p.add_argument("--checkpoint", type=str, required=True, help="Path to trained checkpoint.")
+    p.add_argument(
+        "--checkpoint", type=str, required=True, help="Path to trained checkpoint."
+    )
     p.add_argument("--split", type=str, default="val", choices=["train", "val", "test"])
-    p.add_argument("--score_thresh", type=float, default=0.5, help="Confidence threshold for predicted boxes.")
-    p.add_argument("--iou_thresh", type=float, default=0.5, help="IoU threshold for a correct detection.")
-    p.add_argument("--max_viz", type=int, default=8, help="Number of qualitative prediction images to save.")
+    p.add_argument(
+        "--score_thresh",
+        type=float,
+        default=0.5,
+        help="Confidence threshold for predicted boxes.",
+    )
+    p.add_argument(
+        "--iou_thresh",
+        type=float,
+        default=0.5,
+        help="IoU threshold for a correct detection.",
+    )
+    p.add_argument(
+        "--max_viz",
+        type=int,
+        default=8,
+        help="Number of qualitative prediction images to save.",
+    )
     return p.parse_args()
+
 
 def load_config(path: str | Path) -> Dict[str, Any]:
     with open(path, "r") as f:
         return yaml.safe_load(f)
+
 
 @torch.no_grad()
 def run_predictions(model, loader, device, max_viz: int):
@@ -69,7 +93,7 @@ def run_predictions(model, loader, device, max_viz: int):
 
         for img, tgt, pred in zip(images, targets, batch_preds):
             pred_cpu = {k: v.detach().cpu() for k, v in pred.items()}
-            tgt_cpu  = {k: v.detach().cpu() for k, v in tgt.items()}
+            tgt_cpu = {k: v.detach().cpu() for k, v in tgt.items()}
 
             all_targets.append({"boxes": tgt_cpu["boxes"], "labels": tgt_cpu["labels"]})
             all_preds.append(pred_cpu)
@@ -80,6 +104,7 @@ def run_predictions(model, loader, device, max_viz: int):
                 viz_preds.append(pred_cpu)
 
     return val_loss, all_targets, all_preds, viz_images, viz_targets, viz_preds
+
 
 def draw_boxes(
     image_tensor: torch.Tensor,
@@ -99,11 +124,21 @@ def draw_boxes(
     for box, label in zip(target["boxes"], target["labels"]):
         xmin, ymin, xmax, ymax = box.tolist()
         rect = patches.Rectangle(
-            (xmin, ymin), xmax - xmin, ymax - ymin,
-            linewidth=2, edgecolor="lime", facecolor="none",
+            (xmin, ymin),
+            xmax - xmin,
+            ymax - ymin,
+            linewidth=2,
+            edgecolor="lime",
+            facecolor="none",
         )
         ax.add_patch(rect)
-        ax.text(xmin, max(ymin - 4, 0), f"GT:{id_to_label[int(label)]}", color="lime", fontsize=8)
+        ax.text(
+            xmin,
+            max(ymin - 4, 0),
+            f"GT:{id_to_label[int(label)]}",
+            color="lime",
+            fontsize=8,
+        )
 
     # Predictions in red
     keep = pred["scores"] >= score_thresh
@@ -136,6 +171,7 @@ def draw_boxes(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
+
 
 def main() -> int:
     args = parse_args()
@@ -191,10 +227,17 @@ def main() -> int:
         freeze_backbone=model_cfg.get("freeze_backbone", False),
     ).to(device)
 
-    ckpt_meta = load_checkpoint(args.checkpoint, model=model, optimizer=None, map_location=device)
+    ckpt_meta = load_checkpoint(
+        args.checkpoint, model=model, optimizer=None, map_location=device
+    )
 
-    val_loss, all_targets, all_preds, viz_images, viz_targets, viz_preds = run_predictions(
-        model, loader, device, max_viz=args.max_viz,
+    val_loss, all_targets, all_preds, viz_images, viz_targets, viz_preds = (
+        run_predictions(
+            model,
+            loader,
+            device,
+            max_viz=args.max_viz,
+        )
     )
 
     metrics = compute_detection_metrics(
@@ -266,12 +309,12 @@ def main() -> int:
         )
 
     logger.info(
-        "Saved metrics to:      %s\n"
-        "Saved prediction figs: %s",
+        "Saved metrics to:      %s\n" "Saved prediction figs: %s",
         log_path,
         fig_dir,
     )
     return 0
+
 
 if __name__ == "__main__":
     try:

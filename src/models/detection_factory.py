@@ -9,6 +9,7 @@ from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights
 
 logger = logging.getLogger(__name__)
 
+
 def count_trainable_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -49,12 +50,12 @@ def create_detection_model(
             param.requires_grad = False
 
         logger.info(
-        "Created %s | pretrained=%s | freeze_backbone=%s | num_classes=%s | trainable_params=%s",
-        model_name,
-        pretrained,
-        freeze_backbone,
-        num_classes,
-        f"{count_trainable_parameters(model):,}",
-    )  # pylint: disable=logging-too-many-args
+            "Created %s | pretrained=%s | freeze_backbone=%s | num_classes=%s | trainable_params=%s",
+            model_name,
+            pretrained,
+            freeze_backbone,
+            num_classes,
+            f"{count_trainable_parameters(model):,}",
+        )  # pylint: disable=logging-too-many-args
 
     return model

@@ -22,20 +22,26 @@ from src.utils import (
     load_checkpoint,
     save_json,
     set_seed,
-    setup_logging
+    setup_logging,
 )
 
-SEP = "-" * 100 # Separates outputs in terminal
+SEP = "-" * 100  # Separates outputs in terminal
 logger = logging.getLogger(__name__)
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate road-damage crop classifier.")
-    p.add_argument("--config", type=str, required=True, 
-                   help="Path to YAML config.")
-    p.add_argument("--checkpoint", type=str, required=True, 
-                   help="Path to model checkpoint.")
-    p.add_argument("--split", type=str, default="test", choices=["train", "val", "test"], 
-                   help="Dataset split to evaluate.")
+    p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
+    p.add_argument(
+        "--checkpoint", type=str, required=True, help="Path to model checkpoint."
+    )
+    p.add_argument(
+        "--split",
+        type=str,
+        default="test",
+        choices=["train", "val", "test"],
+        help="Dataset split to evaluate.",
+    )
     return p.parse_args()
 
 
@@ -89,11 +95,15 @@ def save_confusion_matrix(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cm = confusion_matrix(y_true, y_pred, labels=list(range(len(class_names))), normalize=normalize)
+    cm = confusion_matrix(
+        y_true, y_pred, labels=list(range(len(class_names))), normalize=normalize
+    )
     fig, ax = plt.subplots(figsize=(10, 8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
     disp.plot(ax=ax, xticks_rotation=45, colorbar=False)
-    ax.set_title("Confusion Matrix" if normalize is None else "Normalized Confusion Matrix")
+    ax.set_title(
+        "Confusion Matrix" if normalize is None else "Normalized Confusion Matrix"
+    )
     fig.tight_layout()
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -125,25 +135,27 @@ def main() -> int:
         label_map = None
 
     split_dir = data_cfg.get("split_dir")
-    
+
     if split_dir:
         split_dir_path = Path(split_dir)
         split_subdir = {
             "train": split_dir_path / "train",
             "val": split_dir_path / "val",
-            "test": split_dir_path / "test"
+            "test": split_dir_path / "test",
         }.get(args.split)
-        
+
         if not split_subdir:
-            raise ValueError(f"Invalid split '{args.split}'. Must be 'train', 'val', or 'test'.")
-        
+            raise ValueError(
+                f"Invalid split '{args.split}'. Must be 'train', 'val', or 'test'."
+            )
+
         npy_file = split_subdir / f"{args.split}_annotations.npy"
         pkl_file = split_subdir / f"{args.split}_annotations.pkl"
-        
+
         ds = RDDBboxCropDataset(
             npy_path=str(npy_file) if npy_file.exists() else None,
             pkl_path=str(pkl_file) if pkl_file.exists() else None,
-            split=None, 
+            split=None,
             transform=eval_tf,
             countries=data_cfg.get("countries"),
             allowed_labels=data_cfg.get("allowed_labels"),
@@ -180,7 +192,9 @@ def main() -> int:
         freeze_backbone=model_cfg.get("freeze_backbone", False),
     ).to(device)
 
-    ckpt_meta = load_checkpoint(args.checkpoint, model=model, optimizer=None, map_location=device)
+    ckpt_meta = load_checkpoint(
+        args.checkpoint, model=model, optimizer=None, map_location=device
+    )
     criterion = nn.CrossEntropyLoss()
 
     metrics = evaluate(model, loader, criterion, device)
@@ -210,7 +224,7 @@ def main() -> int:
         metrics["accuracy"],
         metrics["macro_f1"],
         SEP,
-        )  # pylint: disable=logging-too-many-args
+    )  # pylint: disable=logging-too-many-args
 
     eval_out = {
         "config": cfg,
@@ -234,8 +248,16 @@ def main() -> int:
     cm_path = fig_dir / f"confusion_matrix_{args.split}.png"
     cm_norm_path = fig_dir / f"confusion_matrix_{args.split}_normalized.png"
 
-    save_confusion_matrix(metrics["y_true"], metrics["y_pred"], class_names, cm_path, normalize=None)
-    save_confusion_matrix(metrics["y_true"], metrics["y_pred"], class_names, cm_norm_path, normalize="true")
+    save_confusion_matrix(
+        metrics["y_true"], metrics["y_pred"], class_names, cm_path, normalize=None
+    )
+    save_confusion_matrix(
+        metrics["y_true"],
+        metrics["y_pred"],
+        class_names,
+        cm_norm_path,
+        normalize="true",
+    )
 
     logger.info(
         "Evaluation completed successfully\n"
@@ -245,7 +267,7 @@ def main() -> int:
         metrics_path,
         cm_path,
         cm_norm_path,
-        ) # pylint: disable=logging-too-many-args
+    )  # pylint: disable=logging-too-many-args
 
     return 0
 

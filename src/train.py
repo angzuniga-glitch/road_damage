@@ -27,21 +27,29 @@ from src.utils import (
     setup_logging,
 )
 
-SEP = "-" * 100 # Separates outputs in terminal
+SEP = "-" * 100  # Separates outputs in terminal
 logger = logging.getLogger(__name__)
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train road-damage crop classifier.")
     p.add_argument("--config", type=str, required=True, help="Path to YAML config.")
-    p.add_argument("--profile", action="store_true",
-                   help="Run torch profiler on epoch 1 and save trace to outputs/profiler/.")
+    p.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run torch profiler on epoch 1 and save trace to outputs/profiler/.",
+    )
     return p.parse_args()
+
 
 def load_config(path: str | Path) -> Dict[str, Any]:
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict[str, int]]:
+
+def build_dataloaders(
+    cfg: Dict[str, Any],
+) -> Tuple[DataLoader, DataLoader, Dict[str, int]]:
     data_cfg = cfg["data"]
     train_tf = get_train_transforms(data_cfg["image_size"])
     eval_tf = get_eval_transforms(data_cfg["image_size"])
@@ -93,8 +101,8 @@ def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict
             allowed_labels=data_cfg.get("allowed_labels"),
             cache_images=cache_images,
         )
-    all_labels =sorted(set(row["label"] for row in train_ds.data))
-    label_map = {label:idx for idx, label in enumerate(all_labels)}
+    all_labels = sorted(set(row["label"] for row in train_ds.data))
+    label_map = {label: idx for idx, label in enumerate(all_labels)}
     save_label_map(label_map, label_map_path)
 
     train_dl = DataLoader(
@@ -119,6 +127,7 @@ def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict
 
     return train_dl, val_dl, label_map
 
+
 def build_optimizer(cfg: Dict[str, Any], model: nn.Module) -> torch.optim.Optimizer:
     opt_name = cfg["train"]["optimizer"].lower()
     lr = cfg["train"]["lr"]
@@ -134,6 +143,7 @@ def build_optimizer(cfg: Dict[str, Any], model: nn.Module) -> torch.optim.Optimi
 
     raise ValueError(f"Unsupported optimizer: {opt_name}")
 
+
 def build_scheduler(cfg: Dict[str, Any], optimizer: torch.optim.Optimizer):
     sched_name = cfg["train"].get("scheduler", "none").lower()
 
@@ -142,12 +152,15 @@ def build_scheduler(cfg: Dict[str, Any], optimizer: torch.optim.Optimizer):
     if sched_name == "steplr":
         step_size = cfg["train"].get("step_size", 10)
         gamma = cfg["train"].get("gamma", 0.1)
-        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+        return torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=step_size, gamma=gamma
+        )
     if sched_name == "cosine":
         epochs = cfg["train"]["epochs"]
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     raise ValueError(f"Unsupported scheduler: {sched_name}")
+
 
 def train_one_epoch(
     model: nn.Module,
@@ -167,7 +180,7 @@ def train_one_epoch(
         labels = labels.to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast('cuda'):
+        with torch.amp.autocast("cuda"):
             logits = model(images)
             loss = criterion(logits, labels)
         scaler.scale(loss).backward()
@@ -183,6 +196,7 @@ def train_one_epoch(
     metrics = compute_classification_metrics(y_true, y_pred)
     metrics["loss"] = loss_meter.avg
     return metrics
+
 
 @torch.no_grad()
 def evaluate(
@@ -200,7 +214,7 @@ def evaluate(
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        with torch.amp.autocast('cuda'):
+        with torch.amp.autocast("cuda"):
             logits = model(images)
             loss = criterion(logits, labels)
 
@@ -214,12 +228,13 @@ def evaluate(
     metrics["loss"] = loss_meter.avg
     return metrics
 
+
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
 
     setup_logging(Path(cfg["outputs"]["logs_dir"]) / "train.log")
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision("high")
     logging.getLogger("torch._inductor.utils").setLevel(logging.ERROR)
     logger.info("\nStarting training with config: %s\n", args.config)
 
@@ -265,15 +280,15 @@ def main() -> int:
         SEP,
         args.config,
         device,
-        model_cfg['name'],
-        model_cfg.get('pretrained', False),
-        model_cfg.get('freeze_backbone', False),
+        model_cfg["name"],
+        model_cfg.get("pretrained", False),
+        model_cfg.get("freeze_backbone", False),
         num_classes,
         trainable_params,
         len(train_loader.dataset),
         len(val_loader.dataset),
         SEP,
-        ) # pylint: disable=logging-too-many-args
+    )  # pylint: disable=logging-too-many-args
 
     history = {
         "config": cfg,
@@ -303,18 +318,21 @@ def main() -> int:
                 with_stack=True,
             ) as prof:
                 with record_function("train_epoch"):
-                    train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+                    train_metrics = train_one_epoch(
+                        model, train_loader, criterion, optimizer, device, scaler
+                    )
 
             prof_dir = Path(out_cfg["logs_dir"]) / "profiler"
             prof_dir.mkdir(parents=True, exist_ok=True)
             prof.export_chrome_trace(str(prof_dir / "trace.json"))
-            with open(prof_dir / "profiler_results.txt", 'w', encoding="utf-8") as f:
-                f.write(prof.key_averages().table(
-                    sort_by="cuda_time_total",
-                    row_limit=90
-                ))
+            with open(prof_dir / "profiler_results.txt", "w", encoding="utf-8") as f:
+                f.write(
+                    prof.key_averages().table(sort_by="cuda_time_total", row_limit=90)
+                )
         else:
-            train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+            train_metrics = train_one_epoch(
+                model, train_loader, criterion, optimizer, device, scaler
+            )
 
         val_metrics = evaluate(model, val_loader, criterion, device)
 
@@ -401,9 +419,10 @@ def main() -> int:
         ckpt_path,
         history_path,
         SEP,
-    ) # pylint: disable=logging-too-many-args
-    
+    )  # pylint: disable=logging-too-many-args
+
     return 0
+
 
 if __name__ == "__main__":
     try:

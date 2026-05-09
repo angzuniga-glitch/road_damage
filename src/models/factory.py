@@ -10,21 +10,26 @@ from torchvision.models import (
 import timm
 
 from src.models.custom_cnn import CustomCNN
+
 logging.getLogger("timm").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+
 def freeze_module(module: nn.Module) -> None:
     for p in module.parameters():
         p.requires_grad = False
+
 
 def unfreeze_module(module: nn.Module) -> None:
     for p in module.parameters():
         p.requires_grad = True
 
+
 def count_trainable_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def _build_resnet(
     name: str,
@@ -45,10 +50,11 @@ def _build_resnet(
 
     if freeze_backbone:
         freeze_module(model)
-    
+
     model.fc = nn.Linear(in_features, num_classes)
 
     return model
+
 
 def _build_vit(
     name: str,
@@ -77,9 +83,12 @@ def _build_vit(
         if hasattr(model, "head") and isinstance(model.head, nn.Module):
             unfreeze_module(model.head)
         else:
-            raise ValueError(f"Model {name} does not expose a standard .head for freezing/fine-tuning.")
+            raise ValueError(
+                f"Model {name} does not expose a standard .head for freezing/fine-tuning."
+            )
 
     return model
+
 
 def create_model(
     model_name: str,
@@ -131,6 +140,7 @@ def create_model(
         )
 
     raise ValueError(f"Unsupported model_name: {model_name}")
+
 
 if __name__ == "__main__":
     configs = [

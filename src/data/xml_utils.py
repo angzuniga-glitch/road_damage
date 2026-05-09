@@ -15,7 +15,15 @@ IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 def derive_country_from_path(path: str) -> str:
     parts = Path(path).parts
-    known = {"China_Drone", "China_MotorBike", "Czech", "India", "Japan", "Norway", "United_States"}
+    known = {
+        "China_Drone",
+        "China_MotorBike",
+        "Czech",
+        "India",
+        "Japan",
+        "Norway",
+        "United_States",
+    }
     for name in parts:
         if name in known:
             return name
@@ -33,7 +41,9 @@ def derive_split_from_path(path: str) -> str:
     return "unknown"
 
 
-def parse_voc_xml(xml_path: str | Path) -> Tuple[int, int, List[Tuple[str, Tuple[int, int, int, int]]]]:
+def parse_voc_xml(
+    xml_path: str | Path,
+) -> Tuple[int, int, List[Tuple[str, Tuple[int, int, int, int]]]]:
     xml_path = Path(xml_path)
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -171,7 +181,9 @@ def load_detection_records(
     val_ratio: float = 0.1,
     seed: int = 1337,
 ) -> List[Dict]:
-    records = discover_rdd_pairs(rdd_root, xml_glob=xml_glob, image_dir_hint=image_dir_hint)
+    records = discover_rdd_pairs(
+        rdd_root, xml_glob=xml_glob, image_dir_hint=image_dir_hint
+    )
 
     if countries is not None:
         keep = set(countries)
