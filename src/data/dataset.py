@@ -79,7 +79,7 @@ class RDDBboxCropDataset(Dataset):
         image_size: int = 224,
     ):
         if npy_path and Path(npy_path).exists():
-            logger.info("Loading from numpy: %s", npy_path)
+            logger.info("\nLoading from numpy: %s", npy_path)
             arr = np.load(npy_path, allow_pickle=True)
             rows = []
             for record in arr:
@@ -98,7 +98,7 @@ class RDDBboxCropDataset(Dataset):
                 )
             self.data = rows
         elif pkl_path and Path(pkl_path).exists():
-            logger.info("Loading from pickle: %s", pkl_path)
+            logger.info("\nLoading from pickle: %s", pkl_path)
             with open(pkl_path, "rb") as f:
                 image_to_boxes = pickle.load(f)
 
@@ -120,7 +120,7 @@ class RDDBboxCropDataset(Dataset):
                     )
             self.data = rows
         elif csv_path:
-            logger.info("Loading from CSV: %s", csv_path)
+            logger.info("\nLoading from CSV: %s", csv_path)
             df = pd.read_csv(csv_path)
             if split:
                 df = df[df["split"] == split]
