@@ -4,12 +4,13 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List,Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import logging
 import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
+
 
 def setup_logging(log_path: str | Path, level: int = logging.INFO) -> None:
     """
@@ -31,6 +32,7 @@ def setup_logging(log_path: str | Path, level: int = logging.INFO) -> None:
         ],
     )
 
+
 def set_seed(seed: int = 1337) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -38,6 +40,7 @@ def set_seed(seed: int = 1337) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 @dataclass
 class AverageMeter:
@@ -81,10 +84,12 @@ def save_json(obj: Dict[str, Any], path: str | Path) -> None:
     with path.open("w") as f:
         json.dump(obj, f, indent=2)
 
+
 def load_json(path: str | Path) -> Dict[str, Any]:
     path = Path(path)
     with path.open("r") as f:
         return json.load(f)
+
 
 def ensure_dir(path: str | Path) -> Path:
     path = Path(path)
@@ -108,10 +113,13 @@ def save_checkpoint(
         "epoch": int(epoch),
         "best_metric": float(best_metric),
         "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict() if optimizer is not None else None,
+        "optimizer_state_dict": (
+            optimizer.state_dict() if optimizer is not None else None
+        ),
         "config": config,
     }
     torch.save(ckpt, path)
+
 
 def load_checkpoint(
     path: str | Path,
@@ -127,8 +135,12 @@ def load_checkpoint(
         model.load_state_dict(state_dict)
     except RuntimeError:
         stripped = {k.replace("._orig_mod.", "."): v for k, v in state_dict.items()}
+        stripped = {
+            k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v
+            for k, v in stripped.items()
+        }
         model.load_state_dict(stripped)
-        
+
     if optimizer is not None and ckpt.get("optimizer_state_dict") is not None:
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
@@ -138,16 +150,22 @@ def load_checkpoint(
         "config": ckpt.get("config", None),
     }
 
+
 def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
     """IoU matrix [N, M] for xyxy boxes."""
     if boxes1.numel() == 0 or boxes2.numel() == 0:
         return torch.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=torch.float32)
 
-    area1 = (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-    area2 = (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
+    area1 = (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (
+        boxes1[:, 3] - boxes1[:, 1]
+    ).clamp(min=0)
+    area2 = (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (
+        boxes2[:, 3] - boxes2[:, 1]
+    ).clamp(min=0)
 
     lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])
     rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
@@ -157,9 +175,13 @@ def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
     union = area1[:, None] + area2 - inter
     return inter / union.clamp(min=1e-6)
 
-def _match_detections_for_class(pred_boxes: torch.Tensor,
-    pred_scores: torch.Tensor, gt_boxes: torch.Tensor,
-    iou_thresh: float,) -> Tuple[List[int], int]:
+
+def _match_detections_for_class(
+    pred_boxes: torch.Tensor,
+    pred_scores: torch.Tensor,
+    gt_boxes: torch.Tensor,
+    iou_thresh: float,
+) -> Tuple[List[int], int]:
 
     if pred_boxes.numel() == 0:
         return [], int(gt_boxes.shape[0])
@@ -183,10 +205,15 @@ def _match_detections_for_class(pred_boxes: torch.Tensor,
 
     return tp_flags, int(gt_boxes.shape[0])
 
-def compute_detection_metrics(targets: List[Dict[str, torch.Tensor]],
-    preds: List[Dict[str, torch.Tensor]], label_map: Dict[str, int],
-    score_thresh: float = 0.5, iou_thresh: float = 0.5,) -> Dict[str, Any]:
-    
+
+def compute_detection_metrics(
+    targets: List[Dict[str, torch.Tensor]],
+    preds: List[Dict[str, torch.Tensor]],
+    label_map: Dict[str, int],
+    score_thresh: float = 0.5,
+    iou_thresh: float = 0.5,
+) -> Dict[str, Any]:
+
     class_ids = sorted(label_map.values())
     id_to_label = {v: k for k, v in label_map.items()}
 
@@ -221,7 +248,9 @@ def compute_detection_metrics(targets: List[Dict[str, torch.Tensor]],
             total_gt += gt_count
 
         if scores_all:
-            order = sorted(range(len(scores_all)), key=lambda i: scores_all[i], reverse=True)
+            order = sorted(
+                range(len(scores_all)), key=lambda i: scores_all[i], reverse=True
+            )
             tp_flags_all = [tp_flags_all[i] for i in order]
 
         fp_flags_all = [1 - x for x in tp_flags_all]
@@ -239,7 +268,11 @@ def compute_detection_metrics(targets: List[Dict[str, torch.Tensor]],
             recalls = [tp / max(total_gt, 1) for tp in tp_cum]
             precision = precisions[-1]
             recall = recalls[-1]
-            f1 = 0.0 if (precision + recall) == 0 else 2 * precision * recall / (precision + recall)
+            f1 = (
+                0.0
+                if (precision + recall) == 0
+                else 2 * precision * recall / (precision + recall)
+            )
             prev_recall, ap50 = 0.0, 0.0
             for p, r in zip(precisions, recalls):
                 ap50 += p * max(r - prev_recall, 0.0)
