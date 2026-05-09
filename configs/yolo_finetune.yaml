@@ -1,4 +1,5 @@
 seed: 1337
+verbose: true  # set false to suppress Ultralytics per-epoch terminal output
 
 yolo_data_dir: yolo_dataset
 
@@ -25,17 +26,25 @@ train:
   imgsz: 640
   batch_size: 16
   num_workers: 4
+  device: 0           
+
   lr: 0.01
   lrf: 0.01           
   momentum: 0.937
   weight_decay: 0.0005
   warmup_epochs: 3
   early_stopping_patience: 10
-  close_mosaic: 10    
+
+  hflip_prob: 0.5     # random horizontal flip probability
+  hsv_h: 0.015        # hue jitter
+  hsv_s: 0.7          # saturation jitter
+  hsv_v: 0.4          # value (brightness) jitter
+  degrees: 0.0        # rotation — keep 0 for road damage (orientation matters)
+  translate: 0.1      # translation fraction
+  scale: 0.5          # scale jitter range
+  mosaic: 1.0         # mosaic augmentation probability (0.0 to disable)
+  close_mosaic: 10    # disable mosaic for last N epochs to stabilize training
 
 outputs:
   root_dir: outputs/yolov8n_finetune
-  checkpoints_dir: outputs/yolov8n_finetune/checkpoints
-  logs_dir: outputs/yolov8n_finetune/logs
-  best_checkpoint_name: best.pt
-  history_name: history.json
+  run_name: train

@@ -1,4 +1,5 @@
 seed: 1337
+verbose: true  # set false to suppress Ultralytics per-epoch terminal output
 
 yolo_data_dir: yolo_dataset
 
@@ -25,13 +26,25 @@ train:
   imgsz: 640
   batch_size: 16
   num_workers: 4
+  gpu: 0
+
   lr: 0.003             
   lrf: 0.01
   momentum: 0.937
   weight_decay: 0.0005
   warmup_epochs: 5      
   early_stopping_patience: 10
+
+  hflip_prob: 0.5
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  mosaic: 1.0
   close_mosaic: 10
 
 outputs:
   root_dir: outputs/yolov8n_scratch
+  run_name: train
