@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import random
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 import xml.etree.ElementTree as ET
 
+logger = logging.getLogger(__name__)
 
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 

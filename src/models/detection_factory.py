@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import torch.nn as nn
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights
 
+logger = logging.getLogger(__name__)
 
 def count_trainable_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -42,7 +45,16 @@ def create_detection_model(
     if freeze_backbone:
         # torchvision already respects trainable_backbone_layers,
         # but this makes intent explicit.
-        for name, param in model.backbone.body.named_parameters():
+        for param in model.backbone.body.parameters():
             param.requires_grad = False
+
+        logger.info(
+        "Created %s | pretrained=%s | freeze_backbone=%s | num_classes=%s | trainable_params=%s",
+        model_name,
+        pretrained,
+        freeze_backbone,
+        num_classes,
+        f"{count_trainable_parameters(model):,}",
+    )  # pylint: disable=logging-too-many-args
 
     return model

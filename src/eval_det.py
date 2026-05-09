@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
+import yaml
+import torch
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import torch
-import yaml
-from torch.utils.data import DataLoader
 
 from src.data.dataset_det import RDDDetectionDataset, DetectionTransform, detection_collate_fn
 from src.models.detection_factory import create_detection_model
-from src.utils import box_iou, compute_detection_metrics, ensure_dir, get_device, load_checkpoint, save_json, set_seed
+from src.utils import (
+    compute_detection_metrics, 
+    ensure_dir, 
+    get_device, 
+    load_checkpoint, 
+    save_json, 
+    set_seed,
+    setup_logging,
+)
+
+SEP = "=" * 100
+logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate Faster R-CNN on RDD2022.")
@@ -129,6 +141,7 @@ def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
 
+    setup_logging(Path(cfg["outputs"]["logs_dir"]) / "eval_det.log")
     set_seed(cfg.get("seed", 1337))
     device = get_device()
 
@@ -194,19 +207,34 @@ def main() -> int:
 
     id_to_label = {v: k for k, v in ds.label_map.items()}
 
-    print("=" * 100)
-    print(f"Config:              {args.config}")
-    print(f"Checkpoint:          {args.checkpoint}")
-    print(f"Split:               {args.split}")
-    print(f"Loaded epoch:        {ckpt_meta.get('epoch', 'N/A')}")
-    print(f"Samples:             {len(ds)}")
-    print("-" * 100)
-    print(f"Val loss:            {val_loss:.4f}")
-    print(f"Precision@50:        {metrics['precision@50']:.4f}")
-    print(f"Recall@50:           {metrics['recall@50']:.4f}")
-    print(f"F1@50:               {metrics['f1@50']:.4f}")
-    print(f"mAP50 approx:        {metrics['map50_approx']:.4f}")
-    print("=" * 100)
+    logger.info(
+        "\n%s\n"
+        "Config:              %s\n"
+        "Checkpoint:          %s\n"
+        "Split:               %s\n"
+        "Loaded epoch:        %s\n"
+        "Samples:             %s\n"
+        "%s\n"
+        "Val loss:            %.4f\n"
+        "Precision@50:        %.4f\n"
+        "Recall@50:           %.4f\n"
+        "F1@50:               %.4f\n"
+        "mAP50 approx:        %.4f\n"
+        "%s",
+        SEP,
+        args.config,
+        args.checkpoint,
+        args.split,
+        ckpt_meta.get("epoch", "N/A"),
+        len(ds),
+        SEP,
+        val_loss,
+        metrics["precision@50"],
+        metrics["recall@50"],
+        metrics["f1@50"],
+        metrics["map50_approx"],
+        SEP,
+    )  # pylint: disable=logging-too-many-args
 
     metrics_out = {
         "config": cfg,
@@ -237,10 +265,17 @@ def main() -> int:
             score_thresh=args.score_thresh,
         )
 
-    print(f"Saved metrics to:      {log_path}")
-    print(f"Saved prediction figs: {fig_dir}")
-
+    logger.info(
+        "Saved metrics to:      %s\n"
+        "Saved prediction figs: %s",
+        log_path,
+        fig_dir,
+    )
     return 0
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as e:
+        print(f"Evaluation failed with error: {e}", flush=True)
+        raise

@@ -6,9 +6,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List,Optional, Tuple
 
+import logging
 import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
+
+def setup_logging(log_path: str | Path, level: int = logging.INFO) -> None:
+    """
+    Root logger for entry point scripts.
+    Clears any handlers efore setting up,
+    Call at start of main() in each entry point,
+    with log path from config.
+    """
+    log_path = Path(log_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logging.root.handlers.clear()
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_path, mode="a"),
+        ],
+    )
 
 def set_seed(seed: int = 1337) -> None:
     random.seed(seed)

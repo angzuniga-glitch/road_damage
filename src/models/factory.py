@@ -13,6 +13,8 @@ from src.models.custom_cnn import CustomCNN
 logging.getLogger("timm").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 def freeze_module(module: nn.Module) -> None:
     for p in module.parameters():
         p.requires_grad = False
@@ -42,12 +44,9 @@ def _build_resnet(
     in_features = model.fc.in_features
 
     if freeze_backbone:
-        # Freeze everything first
         freeze_module(model)
-        # Replace classifier with trainable head
-        model.fc = nn.Linear(in_features, num_classes)
-    else:
-        model.fc = nn.Linear(in_features, num_classes)
+    
+    model.fc = nn.Linear(in_features, num_classes)
 
     return model
 

@@ -1,19 +1,24 @@
 from __future__ import annotations
+
 import json
 import pickle
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
-from torchvision import transforms as T
+
 import pandas as pd
 import numpy as np
 from PIL import Image, ImageFile
+from torchvision import transforms as T
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CropSample:
@@ -67,7 +72,7 @@ class RDDBboxCropDataset(Dataset):
             image_size: int = 224,
     ):
         if npy_path and Path(npy_path).exists():
-            print(f"\nLoading from numpy: {npy_path}")
+            logger.info("Loading from numpy: %s", npy_path)
             arr = np.load(npy_path, allow_pickle=True)
             rows = []
             for record in arr:
@@ -84,7 +89,7 @@ class RDDBboxCropDataset(Dataset):
                 })
             self.data = rows
         elif pkl_path and Path(pkl_path).exists():
-            print(f"\nLoading from pickle: \n{pkl_path}")
+            logger.info("Loading from pickle: %s", pkl_path)
             with open(pkl_path, 'rb') as f:
                 image_to_boxes = pickle.load(f)
 
@@ -104,7 +109,7 @@ class RDDBboxCropDataset(Dataset):
                     })
             self.data = rows
         elif csv_path:
-            print(f"\nLoading from CSV: {csv_path}")
+            logger.info("Loading from CSV: %s", csv_path)
             df = pd.read_csv(csv_path)
             if split:
                 df = df[df["split"] == split]
@@ -134,7 +139,7 @@ class RDDBboxCropDataset(Dataset):
             missing_from_map = current_label_set - map_label_set
 
             if extra_in_map:
-                print(f"label_map contains unused labels: {extra_in_map}")
+                logger.warning("label_map contains unused labels: %s", extra_in_map)
             if missing_from_map:
                 raise ValueError(
                     f"Dataset has labels not in label_map: {missing_from_map}. "
@@ -168,7 +173,7 @@ class RDDBboxCropDataset(Dataset):
         self.cached_crops: Optional[List[Image.Image]] = None
         if self.cache_images:
             split_name = split if split else "data"
-            print(f"[{split_name}] Caching {len(self.samples)} crops in memory...")
+            logger.info("[%s] Caching %s crops in memory...", split_name, len(self.samples))
 
             self.cached_crops = [None] * len(self.samples)
             with ProcessPoolExecutor(max_workers=16) as executor:

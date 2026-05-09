@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import pickle
 import random
 from pathlib import Path
@@ -12,6 +13,7 @@ from torchvision.transforms import functional as F
 
 from src.data.xml_utils import load_detection_records, parse_voc_xml
 
+logger = logging.getLogger(__name__)
 
 class DetectionTransform:
     """
@@ -106,18 +108,22 @@ class RDDDetectionDataset(Dataset):
                 Path("outputs") / f".ann_cache_{split}.pkl"
  
             if _cache_path.exists():
-                print(f"[{split}] Loading annotation cache: {_cache_path}")
+                logger.info("[%s] Loading annotation cache: %s", split, _cache_path)
                 with open(_cache_path, "rb") as f:
                     self._ann_cache = pickle.load(f)
             else:
-                print(f"[{split}] Building annotation cache for {len(self.records)} images …")
+                logger.info(
+                    "[%s] Building annotation cache for %s images ...",
+                    split,
+                    len(self.records),
+                )
                 self._ann_cache = [
                     self._parse_target(rec, idx) for idx, rec in enumerate(self.records)
                 ]
                 _cache_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(_cache_path, "wb") as f:
                     pickle.dump(self._ann_cache, f)
-                print(f"[{split}] Cache saved → {_cache_path}")
+                logger.info("[%s] Cache saved: %s", split, _cache_path)
 
     def _parse_target(self, rec: Dict, idx: int) -> Dict:
 

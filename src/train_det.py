@@ -1,25 +1,35 @@
 from __future__ import annotations
+
 import os
 os.environ["TORCHDYNAMO_VERBOSE"] = "0"
 
-import logging
 import argparse
+import logging
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
+import yaml
 import torch
 import torch._dynamo
 torch._dynamo.config.suppress_errors = False
 torch._dynamo.config.verbose = False  
-
-import yaml
 from torch.utils.data import DataLoader
 
 from src.data.dataset_det import RDDDetectionDataset, DetectionTransform, detection_collate_fn
 from src.models.detection_factory import create_detection_model, count_trainable_parameters
-from src.utils import ensure_dir, get_device, save_checkpoint, save_json, set_seed
+
+from src.utils import (
+    ensure_dir, 
+    get_device, 
+    save_checkpoint, 
+    save_json, 
+    set_seed,
+    setup_logging
+)
+
+SEP = "-" * 100 # Separates outputs in terminal
+logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train object detector on RDD2022.")
@@ -91,7 +101,6 @@ def build_dataloaders(cfg: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, Dict
 
     return train_loader, val_loader, train_ds.label_map
 
-
 def build_optimizer(cfg: Dict[str, Any], model: torch.nn.Module):
     params = [p for p in model.parameters() if p.requires_grad]
     train_cfg = cfg["train"]
@@ -130,7 +139,6 @@ def build_scheduler(cfg: Dict[str, Any], optimizer, steps_per_epoch: int):
         )
     return None
 
-
 def train_one_epoch(model, loader, optimizer, device, scaler, 
                     grad_clip: float = 5.0, accum_steps: int = 1) -> float:
     model.train()
@@ -151,7 +159,6 @@ def train_one_epoch(model, loader, optimizer, device, scaler,
         if (step + 1) % accum_steps == 0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            scale_before = scaler.get_scale()
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none = True)
@@ -189,31 +196,22 @@ def validate_one_epoch(model, loader, device) -> float:
 
     return total_loss / max(total_batches, 1)
 
-
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
     set_seed(cfg.get("seed", 1337))
     run_start = time.time()
-    log_path = Path(cfg["outputs"]["logs_dir"]) / "train.log"
+
+    setup_logging(Path(cfg["outputs"]["logs_dir"]) / "train_det.log")
     ensure_dir(cfg["outputs"]["logs_dir"])
-    logging.root.handlers.clear()
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_path),
-            logging.StreamHandler(),
-        ]
-    )
+
+
     logging.getLogger("torchvision").setLevel(logging.ERROR)
     logging.getLogger("filelock").setLevel(logging.ERROR)
     logging.getLogger("torch._dynamo").setLevel(logging.WARNING)
     logging.getLogger("torch._inductor").setLevel(logging.WARNING)
     logging.captureWarnings(True)
     logging.getLogger("py.warnings").setLevel(logging.WARNING)
-    logger = logging.getLogger("train_det")
-    logger.setLevel(logging.INFO)
 
     device = get_device()
 
@@ -246,21 +244,40 @@ def main() -> int:
     accum_steps = train_cfg.get("grad_accum_steps", 1)
     grad_clip = train_cfg.get("grad_clip", 5.0)
 
-    print(datetime.now().isoformat())
-    print("=" * 100)
-    print(f"Config:            {args.config}")
-    print(f"Device:            {device}")
-    print(f"Model:             {model_cfg['name']}")
-    print(f"Pretrained:        {model_cfg.get('pretrained', True)}")
-    print(f"Freeze backbone:   {model_cfg.get('freeze_backbone', False)}")
-    print(f"Num classes:       {num_classes} (including background)")
-    print(f"Train samples:     {len(train_loader.dataset)}")
-    print(f"Val samples:       {len(val_loader.dataset)}")
-    print(f"Trainable params:  {count_trainable_parameters(model):,}")
-    print(f"Batch size:        {train_cfg['batch_size']}  ×  accum {accum_steps}  =  effective {train_cfg['batch_size'] * accum_steps}")
-    print(f"AMP:               {'enabled' if device.type == 'cuda' else 'disabled (CPU)'}")
-    print(f"Scheduler:         {train_cfg.get('scheduler', 'onecycle')}")
-    print("=" * 100)
+    trainable_params = f"{count_trainable_parameters(model):,}"
+    effective_batch  = train_cfg["batch_size"] * accum_steps
+    amp_status       = "enabled" if device.type == "cuda" else "disabled (CPU)"
+
+    logger.info(
+        "\n%s\n"
+        "Config:            %s\n"
+        "Device:            %s\n"
+        "Model:             %s\n"
+        "Pretrained:        %s\n"
+        "Freeze backbone:   %s\n"
+        "Num classes:       %s (including background)\n"
+        "Train samples:     %s\n"
+        "Val samples:       %s\n"
+        "Trainable params:  %s\n"
+        "Batch size:        %s x accum %s = effective %s\n"
+        "AMP:               %s\n"
+        "Scheduler:         %s\n"
+        "%s",
+        SEP,
+        args.config,
+        device,
+        model_cfg["name"],
+        model_cfg.get("pretrained", True),
+        model_cfg.get("freeze_backbone", False),
+        num_classes,
+        len(train_loader.dataset),
+        len(val_loader.dataset),
+        trainable_params,
+        train_cfg["batch_size"], accum_steps, effective_batch,
+        amp_status,
+        train_cfg.get("scheduler", "onecycle"),
+        SEP,
+    )  # pylint: disable=logging-too-many-args
 
     best_val_loss = float("inf")
     best_epoch    = -1
@@ -272,7 +289,7 @@ def main() -> int:
     best_ckpt = str(Path(out_cfg["checkpoints_dir"]) / out_cfg["best_checkpoint_name"])
     history_path = str(Path(out_cfg["logs_dir"]) / out_cfg["history_name"])
 
-    logger.info(f"Initial LR: {optimizer.param_groups[0]['lr']:.2e}")
+    logger.info("Initial LR: %.2e", optimizer.param_groups[0]["lr"])
     for epoch in range(1, epochs + 1):
         t0 = time.time()
  
@@ -292,21 +309,15 @@ def main() -> int:
         save_json(history, history_path)
 
         elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - run_start))
+        lr_post_step = optimizer.param_groups[0]["lr"]
         logger.info(
-            f"Epoch {epoch:03d}/{epochs} | "
-            f"train={train_loss:.4f} | val={val_loss:.4f} | "
-            f"lr={current_lr:.2e} | epoch_time={dt:.1f}s | "
-            f"elapsed={elapsed} | "
-            f"LR post step: {optimizer.param_groups[0]['lr']:.2e}"
-        )
-        
-        print(
-            f"Epoch {epoch:03d}/{epochs} | "
-            f"train={train_loss:.4f} | val={val_loss:.4f} | "
-            f"lr={current_lr:.2e} | epoch_time={dt:.1f}s | "
-            f"elapsed={elapsed} | "
-            f"LR post step: {optimizer.param_groups[0]['lr']:.2e}"
-        )
+            "Epoch %03d/%s | train=%.4f | val=%.4f | "
+            "lr=%.2e | epoch_time=%.1fs | elapsed=%s | lr_post_step=%.2e",
+            epoch, epochs,
+            train_loss, val_loss,
+            current_lr, dt, elapsed,
+            lr_post_step,
+        )  # pylint: disable=logging-too-many-args
  
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -320,13 +331,13 @@ def main() -> int:
                 best_metric = -best_val_loss,
                 config      = cfg,
             )
-            logger.info(f"  ✓ new best checkpoint saved  (val_loss={best_val_loss:.4f})")
+            logger.info("  ✓ new best checkpoint saved (val_loss=%.4f)", best_val_loss)
         else:
             no_improve += 1
             if no_improve >= patience:
                 logger.info(
-                    f"Early stopping at epoch {epoch}. "
-                    f"Best epoch: {best_epoch}, val_loss: {best_val_loss:.4f}"
+                    "Early stopping at epoch %s | best epoch: %s | val_loss: %.4f",
+                    epoch, best_epoch, best_val_loss,
                 )
                 break
  
@@ -338,14 +349,24 @@ def main() -> int:
     }
     save_json(summary, Path(out_cfg["logs_dir"]) / "summary.json")
  
-    print("=" * 100)
-    logger.info(f"Training complete  |  best epoch {best_epoch}  |  val_loss {best_val_loss:.4f}")
-    logger.info(f"Checkpoint: {best_ckpt}")
-
-    print(f"Training complete  |  best epoch {best_epoch}  |  val_loss {best_val_loss:.4f}")
-    print(f"Checkpoint: {best_ckpt}")
+    logger.info(
+        "\n%s\n"
+        "Training complete\n"
+        "Best epoch:  %s\n"
+        "Val loss:    %.4f\n"
+        "Checkpoint:  %s\n"
+        "%s",
+        SEP,
+        best_epoch,
+        best_val_loss,
+        best_ckpt,
+        SEP,
+    )
     return 0
 
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as e:
+        print(f"Training failed with error: {e}", flush=True)
+        raise

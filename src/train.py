@@ -24,16 +24,10 @@ from src.utils import (
     save_checkpoint,
     save_json,
     set_seed,
+    setup_logging,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("train.log", mode="a"),
-    ],
-)
+SEP = "-" * 100 # Separates outputs in terminal
 logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
@@ -190,7 +184,6 @@ def train_one_epoch(
     metrics["loss"] = loss_meter.avg
     return metrics
 
-
 @torch.no_grad()
 def evaluate(
     model: nn.Module,
@@ -221,11 +214,11 @@ def evaluate(
     metrics["loss"] = loss_meter.avg
     return metrics
 
-
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
 
+    setup_logging(Path(cfg["outputs"]["logs_dir"]) / "train.log")
     torch.set_float32_matmul_precision('high')
     logging.getLogger("torch._inductor.utils").setLevel(logging.ERROR)
     logger.info("\nStarting training with config: %s\n", args.config)
@@ -256,17 +249,31 @@ def main() -> int:
     scheduler = build_scheduler(cfg, optimizer)
     criterion = nn.CrossEntropyLoss()
 
-    print("-" * 100)
-    print(f"Config:              {args.config}")
-    print(f"Device:              {device}")
-    print(f"Model:               {model_cfg['name']}")
-    print(f"Pretrained:          {model_cfg.get('pretrained', False)}")
-    print(f"Freeze backbone:     {model_cfg.get('freeze_backbone', False)}")
-    print(f"Num classes:         {num_classes}")
-    print(f"Trainable params:    {count_trainable_parameters(model):,}")
-    print(f"Train samples:       {len(train_loader.dataset)}")
-    print(f"Val samples:         {len(val_loader.dataset)}")
-    print("-" * 100)
+    trainable_params = f"{count_trainable_parameters(model):,}"
+    logger.info(
+        "\n%s\n"
+        "Config:              %s\n"
+        "Device:              %s\n"
+        "Model:               %s\n"
+        "Pretrained:          %s\n"
+        "Freeze backbone:     %s\n"
+        "Num classes:         %s\n"
+        "Trainable params:    %s\n"
+        "Train samples:       %s\n"
+        "Val samples:         %s\n"
+        "%s\n",
+        SEP,
+        args.config,
+        device,
+        model_cfg['name'],
+        model_cfg.get('pretrained', False),
+        model_cfg.get('freeze_backbone', False),
+        num_classes,
+        trainable_params,
+        len(train_loader.dataset),
+        len(val_loader.dataset),
+        SEP,
+        ) # pylint: disable=logging-too-many-args
 
     history = {
         "config": cfg,
@@ -288,7 +295,7 @@ def main() -> int:
         start = time.time()
 
         # profiling block
-        if epoch == 1:
+        if args.profile and epoch == 1:
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
@@ -324,16 +331,20 @@ def main() -> int:
         history["train"].append(train_metrics)
         history["val"].append(val_metrics)
 
-        print(
-            f"Epoch {epoch:03d} | "
-            f"train_loss={train_metrics['loss']:.4f} "
-            f"train_acc={train_metrics['accuracy']:.4f} "
-            f"train_f1={train_metrics['macro_f1']:.4f} | "
-            f"val_loss={val_metrics['loss']:.4f} "
-            f"val_acc={val_metrics['accuracy']:.4f} "
-            f"val_f1={val_metrics['macro_f1']:.4f} | "
-            f"time={epoch_time:.1f}s"
-        )
+        logger.info(
+            "Epoch %03d | "
+            "train_loss=%.4f train_acc=%.4f train_f1=%.4f | "
+            "val_loss=%.4f val_acc=%.4f val_f1=%.4f | "
+            "time=%.1fs",
+            epoch,
+            train_metrics["loss"],
+            train_metrics["accuracy"],
+            train_metrics["macro_f1"],
+            val_metrics["loss"],
+            val_metrics["accuracy"],
+            val_metrics["macro_f1"],
+            epoch_time,
+        )  # pylint: disable=logging-too-many-args
 
         current_metric = val_metrics["macro_f1"]
         if current_metric > best_metric + min_delta:
@@ -355,8 +366,15 @@ def main() -> int:
         save_json(history, history_path)
 
         if epochs_no_improve >= patience:
-            print(f"Early stopping triggered at epoch {epoch}, (patience: {patience}, min delta: {min_delta})")
-            print(f"Best epoch: {best_epoch}, best val macro-F1: {best_metric:.4f}")
+            logger.info(
+                "Early stopping triggered at epoch %s | patience: %s | min delta: %s\n"
+                "Best epoch: %s | best val macro-F1: %.4f",
+                epoch,
+                patience,
+                min_delta,
+                best_epoch,
+                best_metric,
+            )  # pylint: disable=logging-too-many-args
             break
 
     summary = {
@@ -369,13 +387,21 @@ def main() -> int:
     }
     save_json(summary, Path(out_cfg["logs_dir"]) / "summary.json")
 
-    print("-" * 100)
-    logger.info("Training complete")
-    print(f"Best epoch:          {best_epoch}")
-    print(f"Best val macro-F1:   {best_metric:.4f}")
-    print(f"Checkpoint saved to: {ckpt_path}")
-    print(f"History saved to:    {history_path}")
-    print("-" * 100)
+    logger.info(
+        "\n%s\n"
+        "Training complete\n"
+        "Best epoch:          %s\n"
+        "Best val macro-F1:   %.4f\n"
+        "Checkpoint saved to: %s\n"
+        "History saved to:    %s\n"
+        "%s\n",
+        SEP,
+        best_epoch,
+        best_metric,
+        ckpt_path,
+        history_path,
+        SEP,
+    ) # pylint: disable=logging-too-many-args
     
     return 0
 
@@ -383,5 +409,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as e:
-        logger.error("Training failed with error: %s", e, exc_info=True)
+        print(f"\nTraining failed with error: {e}", flush=True)
         raise

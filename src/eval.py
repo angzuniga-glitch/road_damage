@@ -22,18 +22,11 @@ from src.utils import (
     load_checkpoint,
     save_json,
     set_seed,
+    setup_logging
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("eval.log", mode="a"),
-    ],
-)
+SEP = "-" * 100 # Separates outputs in terminal
 logger = logging.getLogger(__name__)
-
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate road-damage crop classifier.")
@@ -110,6 +103,7 @@ def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
 
+    setup_logging(Path(cfg["outputs"]["logs_dir"]) / "eval.log")
     set_seed(cfg.get("seed", 1337))
     device = get_device()
 
@@ -191,18 +185,32 @@ def main() -> int:
 
     metrics = evaluate(model, loader, criterion, device)
 
-    print("-" * 100)
-    print(f"Config:              {args.config}")
-    print(f"Checkpoint:          {args.checkpoint}")
-    print(f"Split:               {args.split}")
-    print(f"Loaded epoch:        {ckpt_meta.get('epoch', 'N/A')}")
-    print(f"Best metric in ckpt: {ckpt_meta.get('best_metric', 'N/A')}")
-    print(f"Samples:             {len(ds)}")
-    print("-" * 100)
-    print(f"Loss:                {metrics['loss']:.4f}")
-    print(f"Accuracy:            {metrics['accuracy']:.4f}")
-    print(f"Macro-F1:            {metrics['macro_f1']:.4f}")
-    print("-" * 100)
+    logger.info(
+        "\n%s\n"
+        "Config:              %s\n"
+        "Checkpoint:          %s\n"
+        "Split:               %s\n"
+        "Loaded epoch:        %s\n"
+        "Best metric in ckpt: %s\n"
+        "Samples:             %s\n"
+        "%s\n"
+        "Loss:                %.4f\n"
+        "Accuracy:            %.4f\n"
+        "Macro-F1:            %.4f\n"
+        "%s\n",
+        SEP,
+        args.config,
+        args.checkpoint,
+        args.split,
+        ckpt_meta.get("epoch", "N/A"),
+        ckpt_meta.get("best_metric", "N/A"),
+        len(ds),
+        SEP,
+        metrics["loss"],
+        metrics["accuracy"],
+        metrics["macro_f1"],
+        SEP,
+        )  # pylint: disable=logging-too-many-args
 
     eval_out = {
         "config": cfg,
@@ -229,11 +237,15 @@ def main() -> int:
     save_confusion_matrix(metrics["y_true"], metrics["y_pred"], class_names, cm_path, normalize=None)
     save_confusion_matrix(metrics["y_true"], metrics["y_pred"], class_names, cm_norm_path, normalize="true")
 
-    print(f"Saved metrics to:            {metrics_path}")
-    print(f"Saved confusion matrix to:   {cm_path}")
-    print(f"Saved normalized matrix to:  {cm_norm_path}")
-    
-    logger.info("\nEvaluation completed successfully. Metrics saved to %s\n", metrics_path)
+    logger.info(
+        "Evaluation completed successfully\n"
+        "Saved metrics to:           %s\n"
+        "Saved confusion matrix to:  %s\n"
+        "Saved normalized matrix to: %s",
+        metrics_path,
+        cm_path,
+        cm_norm_path,
+        ) # pylint: disable=logging-too-many-args
 
     return 0
 
@@ -242,5 +254,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as e:
-        logger.error("\nEvaluation failed with error: %s\n", e, exc_info=True)
+        print(f"\nEvaluation failed with error: {e}", flush=True)
         raise
