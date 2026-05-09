@@ -22,6 +22,7 @@ model:
   freeze_backbone: false
 
 train:
+  optimizer: SGD
   epochs: 50
   imgsz: 640
   batch_size: 16
