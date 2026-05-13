@@ -1,3 +1,27 @@
+"""
+eval_det.py
+
+Evaluates a trained Faster R-CNN ResNet50-FPN  detector.
+
+Usage:
+    python -m src.eval_det --config configs/fasterrcnn_finetune.yaml --checkpoint outputs/fasterrcnn_finetune/checkpoints/best.pt --split val
+    python -m src.eval_det --config configs/fasterrcnn_frozen.yaml --checkpoint outputs/fasterrcnn_frozen/checkpoints/best.pt --split val
+    python -m src.eval_det --config configs/fasterrcnn_scratch.yaml --checkpoint outputs/fasterrcnn_scratch/checkpoints/best.pt --split val
+
+Arguments:
+    --config        Path to YAML config file for the model and dataset.
+    
+    --checkpoint    Path to trained model checkpoint (.pt file).
+
+    --split         Default: val - Dataset split to evaluate on (train / val / test).
+
+    --score_thresh  Default: 0.5 - Confidence threshold for filtering predicted boxes.
+
+    --iou_thresh    Default: 0.5 - IoU threshold for matching predictions to ground truth box.
+
+    --max_viz       Default: 9 - Number of sample images to save with prediction.
+
+"""
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,27 @@
+"""
+train_yolo.py
+
+Trains a YOLOv8n object detector.
+
+Supported training modes:
+  - Scratch:   pretrained=false, freeze_backbone=false
+  - Frozen:    pretrained=true,  freeze_backbone=true  
+  - Finetune:  pretrained=true,  freeze_backbone=false 
+
+Usage:
+    python -m src.train_yolo --config configs/yolo_finetune.yaml
+    python -m src.train_yolo --config configs/yolo_frozen.yaml
+    python -m src.train_yolo --config configs/yolo_scratch.yaml
+
+    # Skip dataset conversion if already done
+    python -m src.train_yolo --config configs/yolo_finetune.yaml --skip-convert
+
+Arguments:
+    --config        Path to YAML config file.
+    
+    --skip-convert  Skip the VOC-to-YOLO dataset conversion step. 
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,44 @@
+"""
+eval_yolo.py
+
+Evaluates a trained YOLOv8n object detector on the RDD2022 road damage
+dataset using the Ultralytics validation engine.
+
+Produces:
+  1. Full dataset validation metrics — Precision@50, Recall@50,
+     mAP50, mAP50-95 — computed by Ultralytics over the entire split
+  2. Per-class breakdown — Precision, Recall, F1, AP50 for each of
+     D00, D10, D20, D40
+  3. Qualitative prediction visualisations — ground truth (green) vs
+     predicted boxes (red dashed) saved as PNG files
+  4. Evaluation results saved as JSON for downstream comparison
+
+Usage:
+    python -m src.eval_yolo --config configs/yolo_finetune.yaml --checkpoint outputs/yolov8n_finetune/train/weights/best.pt --split val
+    python -m src.eval_yolo --config configs/yolo_frozen.yaml --checkpoint outputs/yolov8n_frozen/train/weights/best.pt --split val
+    python -m src.eval_yolo --config configs/yolo_scratch.yaml --checkpoint outputs/yolov8n_scratch/train/weights/best.pt --split val
+
+    # Lower confidence threshold to see more predictions
+    python -m src.eval_yolo \
+        --config     configs/yolo_scratch.yaml \
+        --checkpoint outputs/yolov8n_scratch/train/weights/best.pt \
+        --split      val \
+        --score_thresh 0.3 \
+        --max_viz 16
+
+Arguments:
+    --config        Path to YAML config file for the model and dataset.
+
+    --checkpoint    Path to trained YOLOv8 weights.
+
+    --split         Default: val - Dataset split to evaluate on (train / val / test).
+
+    --score_thresh  Default: 0.5 - Confidence threshold for filtering predicted boxes.
+
+    --iou_thresh    Default: 0.5 - IoU threshold for matching predictions to ground truth box.
+
+    --max_viz       Default: 8 - Number of sample images to save with prediction.
+"""
 from __future__ import annotations
 
 import argparse

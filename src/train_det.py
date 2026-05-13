@@ -1,3 +1,18 @@
+"""
+train_det.py
+
+Trains a Faster R-CNN ResNet50-FPN object detector.
+
+Supported training modes:
+  - Scratch:   pretrained=false, freeze_backbone=false
+  - Frozen:    pretrained=true,  freeze_backbone=true  
+  - Finetune:  pretrained=true,  freeze_backbone=false 
+
+Usage:
+    python -m src.train_det --config configs/fasterrcnn_finetune.yaml
+    python -m src.train_det --config configs/fasterrcnn_frozen.yaml
+    python -m src.train_det --config configs/fasterrcnn_scratch.yaml
+"""
 from __future__ import annotations
 
 import os
