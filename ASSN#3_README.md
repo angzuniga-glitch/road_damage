@@ -34,11 +34,14 @@ d. Analysis
 a. git clone https://github.com/angzuniga-glitch/road_damage.git
 b. pip install -r requirements.txt
 c. Training Usage:
+```bash
     python -m src.train_det --config configs/fasterrcnn_finetune.yaml
     python -m src.train_det --config configs/fasterrcnn_frozen.yaml
     python -m src.train_det --config configs/fasterrcnn_scratch.yaml
+```    
 d. Evaluation Usage:
+```bash
     python -m src.eval_det --config configs/fasterrcnn_finetune.yaml --checkpoint outputs/fasterrcnn_finetune/checkpoints/best.pt --split val
     python -m src.eval_det --config configs/fasterrcnn_frozen.yaml --checkpoint outputs/fasterrcnn_frozen/checkpoints/best.pt --split val
     python -m src.eval_det --config configs/fasterrcnn_scratch.yaml --checkpoint outputs/fasterrcnn_scratch/checkpoints/best.pt --split val
-
+```
